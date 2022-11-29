@@ -11,11 +11,11 @@
  *
  * Developed on -
  * 1) an NC10 running Debian using its native WiFi hardware and a ZyXEL AC1200 (RTL2812AU),
- * 2) a Raspberry Pi Zero running Raspbian using a ZyXEL AC1200.
+ * 2) a Raspberry Pi running Raspbian using a ZyXEL AC1200.
  *
  * Don't compile with -std=c99, libpcap doesn't like it.
  *
- * Pi Zero
+ * Pi
  * RTL8812AU driver 88XXAU, trying to set monitor mode via libpcap causes an error.
  *
  *
@@ -25,8 +25,10 @@
  *
  */
 
+#define DEBUG_FILE 1
+
 #pragma GCC diagnostic warning "-Wunused-variable"
-/* #pragma GCC diagnostic ignored "-Wunused-but-set-variable" */
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -42,12 +44,15 @@
 
 #define BUFFER_SIZE 2048
 
+static FILE              *debug_file = NULL;
+static const char        *default_key = "0123456789abcdef", *default_iv = "nopqrs",
+                         *debug_filename = "debug.txt";
 static volatile int       end_program     = 0, header_type = 0;
 static volatile uint32_t  rx_packets = 0;
 static const char        *filter_text     = "ether broadcast or ether dst 51:6f:9a:01:00:00 ",
-                          device_pi[10]   = "wlan0",
+                          device_pi[10]   = "wlan1",
                           device_i686[10] = "wlp5s0b1";
-struct UAV_RID            RID_data[MAX_UAVS];
+static struct UAV_RID     RID_data[MAX_UAVS];
 
 void list_devices(char *);
 void packet_handler(u_char *,const struct pcap_pkthdr *,const u_char *);
@@ -60,8 +65,9 @@ void signal_handler(int);
 
 int main(int argc,char *argv[]) {
 
-  int                 i, set_monitor = 1, man_dev = 0;
+  int                 i, set_monitor = 1, man_dev = 0, key_len, iv_len;
   char               *arg, errbuf[PCAP_ERRBUF_SIZE], *device_name;
+  uint8_t            *key = NULL, *iv = NULL;
   u_char              message[16];
   time_t              secs;
   pcap_t             *session = NULL;
@@ -70,7 +76,15 @@ int main(int argc,char *argv[]) {
   struct utsname      sys_uname;
   static time_t       last_debug = 0;
 
+  key = (uint8_t *) default_key;
+  iv  = (uint8_t *) default_iv;
 
+#if DEBUG_FILE
+
+  debug_file = fopen(debug_filename,"w");
+  
+#endif
+  
   uname(&sys_uname);
   
   if (!strncmp("i686",sys_uname.machine,4)) {
@@ -123,6 +137,18 @@ int main(int argc,char *argv[]) {
 #if ASTERIX
 
   asterix_init();
+  
+#endif
+
+  key_len = strlen((char *) key);
+  iv_len  = strlen((char *) iv);
+
+#if VERIFY
+
+  if (i = init_crypto(key,key_len,iv,iv_len,debug_file)) {
+
+    exit(i);
+  }
   
 #endif
   
@@ -252,7 +278,13 @@ int main(int argc,char *argv[]) {
 
   /* 
    */
-  
+
+#if VERIFY
+
+  close_crypto();
+
+#endif
+
   pcap_close(session);
 
   if (RID_data[0].mac[0]) {
@@ -272,6 +304,11 @@ int main(int argc,char *argv[]) {
     }
   }
 
+  if (debug_file) {
+
+    fclose(debug_file);
+  }
+  
   exit(0);
 }
 
@@ -445,7 +482,8 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
 
 void parse_odid(u_char *mac,u_char *payload,int length) {
 
-  int                       i, oldest, RID_index;
+  int                       i, oldest, RID_index, page;
+  char                      c;
   time_t                    secs, oldest_secs;
   ODID_UAS_Data             UAS_data;
   ODID_MessagePack_encoded *encoded_data = (ODID_MessagePack_encoded *) payload;
@@ -541,12 +579,49 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
     memcpy(&RID_data[RID_index].odid_data.SelfID,&UAS_data.SelfID,sizeof(ODID_SelfID_data));
   }
 
-  if (UAS_data.AuthValid[0]) {
+  for (page = 0; page < ODID_AUTH_MAX_PAGES; ++page) {
+  
+    if (UAS_data.AuthValid[page]) {
 
-    memcpy(&RID_data[RID_index].odid_data.Auth[0],&UAS_data.Auth[0],sizeof(ODID_Auth_data));
+      if (page == 0) {
+
+        printf(", \"unix time (alt)\" : %lu",
+               ((unsigned long int) UAS_data.Auth[page].Timestamp) + ID_OD_AUTH_DATUM);
+      }
+
+      printf(", \"auth page %d\" : { \"text\" : \"",page);
+
+      for (i = 0; i < ((page) ? ODID_AUTH_PAGE_NONZERO_DATA_SIZE: ODID_AUTH_PAGE_ZERO_DATA_SIZE); ++i) {
+
+        c = (char) UAS_data.Auth[page].AuthData[i];
+
+        putchar((isprint(c)) ? c: '.');
+      }
+
+      printf("\"");
+#if 1
+      printf(", \"values\" : [");
+    
+      for (i = 0; i < ((page) ? ODID_AUTH_PAGE_NONZERO_DATA_SIZE: ODID_AUTH_PAGE_ZERO_DATA_SIZE); ++i) {
+
+        printf("%s %d",(i) ? ",":"",UAS_data.Auth[page].AuthData[i]);
+      }
+
+      printf(" ]");
+#endif
+      printf(" }");
+    
+      memcpy(&RID_data[RID_index].odid_data.Auth[page],&UAS_data.Auth[page],sizeof(ODID_Auth_data));
+    }
   }
 
-  printf(" }\r\n");
+#if VERIFY
+
+  parse_auth(&UAS_data,encoded_data);
+
+#endif
+
+  printf(" }\n");
 
   /* */
   
@@ -574,6 +649,38 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
 void signal_handler(int sig) {
 
   end_program = 1;
+  
+  return;
+}
+
+/*
+ *
+ */
+
+void dump(char *name,uint8_t *data,int len) {
+
+  int i;
+  
+  if (debug_file) {
+
+    fprintf(debug_file,"%s[] = {",name);
+
+    for (i = 0; i < len; ++i) {
+
+      fprintf(debug_file,"%s 0x%02x",(i) ? ",": "",data[i]);
+    }
+    
+    fprintf(debug_file," };\n%s_s = \"",name);
+
+    for (i = 0; i < len; ++i) {
+
+      putc((isprint(data[i])) ? data[i]: '.',debug_file);
+    }
+    
+    fprintf(debug_file,"\";\n");
+
+    fflush(debug_file);
+  }
   
   return;
 }
