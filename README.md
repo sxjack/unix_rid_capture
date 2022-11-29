@@ -9,3 +9,5 @@ Requires
 The output is in json format. An perl script is provided which converts the json into gpx files suitable for Google Earth.
 
 Tested using an rtl8812au based WiFi dongle.
+
+If anybody runs this in the vicinity of an "Arrêté du 27 décembre 2019" French ID, I would appreciate the debug.txt.

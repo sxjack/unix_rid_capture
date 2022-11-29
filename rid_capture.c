@@ -412,12 +412,16 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
 #else
         ;
 #endif
+
       } else if ((typ    == 0xdd)&&
                  (val[0] == 0x6a)&& // French ID
                  (val[1] == 0x5c)&&
                  (val[2] == 0x35)) {
-
+#if ID_FRANCE
+        parse_id_france(mac,&payload[offset],RID_data);
+#else
         printf("{ \"debug\" : \"French ID\" }\n");
+#endif
 
       } else if ((typ == 0)&&(!ssid_tmp[0])) {
 

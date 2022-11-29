@@ -4,11 +4,12 @@
 CC = gcc
 CFLAGS = -Wall -Wno-parentheses -Wno-deprecated-declarations
 LIBS = -lpcap -lm -lc
+OBJ = rid_capture.o france.o opendroneid.o 
 
 all: 	rid_capture
 
-rid_capture: rid_capture.o rid_capture.h opendroneid.o opendroneid.h Makefile
-	gcc -o rid_capture rid_capture.o opendroneid.o $(LIBS)
+rid_capture: $(OBJ) rid_capture.h opendroneid.h Makefile
+	gcc -o rid_capture $(OBJ) $(LIBS)
 
 clean:
 	rm *.o

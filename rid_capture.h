@@ -10,9 +10,10 @@
 
 #include "opendroneid.h"
 
-#define MAX_UAVS 20
-#define ASTERIX   0
-#define VERIFY    0
+#define MAX_UAVS  20
+#define ASTERIX    0
+#define VERIFY     0
+#define ID_FRANCE  1
 
 #define ID_OD_AUTH_DATUM  1546300800LU
 
@@ -22,6 +23,8 @@ struct UAV_RID {u_char        mac[6];
 };
 
 void dump(char *,uint8_t *,int);
+
+void parse_id_france(uint8_t *,uint8_t *,struct UAV_RID *);
 
 int  init_crypto(uint8_t *,int,uint8_t *,int,FILE *);
 void parse_auth(ODID_UAS_Data *,ODID_MessagePack_encoded *);
