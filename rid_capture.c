@@ -46,9 +46,10 @@
 
 static FILE              *debug_file = NULL;
 static const char        *default_key = "0123456789abcdef", *default_iv = "nopqrs",
-                         *debug_filename = "debug.txt";
+                         *debug_filename = "debug.txt",
+                          fwd_slash = 0x5c;
 static volatile int       end_program     = 0, header_type = 0;
-static volatile uint32_t  rx_packets = 0;
+static volatile uint32_t  rx_packets = 0, odid_packets = 0;
 static const char        *filter_text     = "ether broadcast or ether dst 51:6f:9a:01:00:00 ",
                           device_pi[10]   = "wlan1",
                           device_i686[10] = "wlp5s0b1";
@@ -257,13 +258,20 @@ int main(int argc,char *argv[]) {
 
     if ((secs - last_debug) > 9) {
 
-      printf("{ \"debug\" : \"rx packets %u\" }\n",rx_packets);
+      printf("{ \"debug\" : \"rx packets %u (%u)\" }\n",rx_packets,odid_packets);
 
       last_debug = secs;
     }
 
-#if ASTERIX
+#if 0
+    if ((odid_packets % 20) == 19) {
 
+      fputc('.',stderr);
+      fflush(stderr);
+    }
+#endif
+    
+#if ASTERIX
     static time_t last_asterix = 0;
 
     if ((secs - last_asterix) > 4) {
@@ -272,7 +280,6 @@ int main(int argc,char *argv[]) {
       
       last_asterix = secs;
     }
-
 #endif
   }
 
@@ -288,20 +295,35 @@ int main(int argc,char *argv[]) {
   pcap_close(session);
 
   if (RID_data[0].mac[0]) {
-  
-    fprintf(stderr,"\n%-17s %-10s %-10s operator\n","MAC","last rx","");
+
+#if ASTERIX
+    fprintf(stderr,"\n\n%-17s packets %-10s %-10s operator\n","MAC","last rx","last retx");
+#else
+    fprintf(stderr,"\n\n%-17s packets %-10s operator\n","MAC","last rx");
+#endif
 
     for (int i = 0; i < MAX_UAVS; ++i) {
 
       if (RID_data[i].mac[0]) {
 
-        fprintf(stderr,"%02x:%02x:%02x:%02x:%02x:%02x %10lu %10lu %s\n",
+        fprintf(stderr,"%02x:%02x:%02x:%02x:%02x:%02x %7u ",
                 RID_data[i].mac[0],RID_data[i].mac[1],RID_data[i].mac[2],
                 RID_data[i].mac[3],RID_data[i].mac[4],RID_data[i].mac[5],
+                RID_data[i].packets);
+#if ASTERIX
+        fprintf(stderr,"%10lu %10lu %s\n",
                 RID_data[i].last_rx,RID_data[i].last_retx,
                 RID_data[i].odid_data.OperatorID.OperatorId);
+#else
+        fprintf(stderr,"%10lu %s\n",
+                RID_data[i].last_rx,
+                RID_data[i].odid_data.OperatorID.OperatorId);
+#endif
       }
     }
+#if ID_FRANCE
+    fprintf(stderr,"\n(Summary excludes French IDs.)\n");
+#endif
   }
 
   if (debug_file) {
@@ -493,7 +515,9 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
   ODID_MessagePack_encoded *encoded_data = (ODID_MessagePack_encoded *) payload;
 
   i = 0;
-  
+
+  ++odid_packets;
+
   memset(&UAS_data,0,sizeof(UAS_data));
 
   decodeMessagePack(&UAS_data,encoded_data);
@@ -525,12 +549,27 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
 
   if (i == MAX_UAVS) {
 
-    RID_index                     = oldest;
-    RID_data[RID_index].last_rx   = secs;
-    RID_data[RID_index].last_retx = 0;
-    memcpy(&RID_data[RID_index].mac,mac,6);
-    memset(&RID_data[RID_index].odid_data,0,sizeof(ODID_UAS_Data));
+    struct UAV_RID *uav;
+
+    uav = &RID_data[oldest];
+
+    if (uav->mac[0]) {
+
+      fprintf(stderr,"Reusing RID record %d (%02x:%02x:%02x:%02x:%02x:%02x)\n",oldest,
+              uav->mac[0],uav->mac[1],uav->mac[2],
+              uav->mac[3],uav->mac[4],uav->mac[5]);
+    }
+
+    RID_index      = oldest;
+    uav->last_rx   = secs;
+    uav->last_retx = 0;
+    uav->packets   = 0;
+
+    memcpy(uav->mac,mac,6);
+    memset(&uav->odid_data,0,sizeof(ODID_UAS_Data));
   }
+
+  ++RID_data[RID_index].packets;
 
   /* JSON */
   
@@ -599,7 +638,7 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
 
         c = (char) UAS_data.Auth[page].AuthData[i];
 
-        putchar((isprint(c)) ? c: '.');
+        putchar((isprint(c)&&(c != fwd_slash)) ? c: '.');
       }
 
       printf("\"");
@@ -637,7 +676,7 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
   
   for (i = 0; (i < length)&&(i < 16); ++i) {
 
-    fprintf(stderr,"%c",isprint(payload[i]) ? payload[i]: '.');
+    fprintf(stderr,"%c",(isprint(payload[i])&&(payload[i] != fwd_slash)) ? payload[i]: '.');
   }
 
   fprintf(stderr,"\n");
@@ -678,7 +717,7 @@ void dump(char *name,uint8_t *data,int len) {
 
     for (i = 0; i < len; ++i) {
 
-      putc((isprint(data[i])) ? data[i]: '.',debug_file);
+      putc((isprint(data[i])&&data[i] != fwd_slash) ? data[i]: '.',debug_file);
     }
     
     fprintf(debug_file,"\";\n");

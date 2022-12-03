@@ -18,6 +18,7 @@
 #define ID_OD_AUTH_DATUM  1546300800LU
 
 struct UAV_RID {u_char        mac[6];
+                unsigned int  packets;
                 time_t        last_rx, last_retx;
                 ODID_UAS_Data odid_data;
 };
