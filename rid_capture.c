@@ -43,14 +43,17 @@
 #include "rid_capture.h"
 
 #define BUFFER_SIZE 2048
+#define MAX_KEY_LEN   16
+
+unsigned char             key[MAX_KEY_LEN + 2], iv[MAX_KEY_LEN + 2];
 
 static FILE              *debug_file = NULL;
-static const char        *default_key = "0123456789abcdef", *default_iv = "nopqrs",
-                         *debug_filename = "debug.txt",
-                          fwd_slash = 0x5c;
-static volatile int       end_program     = 0, header_type = 0;
+static const char         default_key[] = "0123456789abcdef", default_iv[] = "nopqrs",
+                          debug_filename[] = "debug.txt";
+static volatile int       end_program  = 0, header_type = 0;
 static volatile uint32_t  rx_packets = 0, odid_packets = 0;
 static const char        *filter_text     = "ether broadcast or ether dst 51:6f:9a:01:00:00 ",
+                          dummy[] = "", 
                           device_pi[10]   = "wlan1",
                           device_i686[10] = "wlp5s0b1";
 static struct UAV_RID     RID_data[MAX_UAVS];
@@ -67,8 +70,7 @@ void signal_handler(int);
 int main(int argc,char *argv[]) {
 
   int                 i, set_monitor = 1, man_dev = 0, key_len, iv_len;
-  char               *arg, errbuf[PCAP_ERRBUF_SIZE], *device_name;
-  uint8_t            *key = NULL, *iv = NULL;
+  char               *arg, errbuf[PCAP_ERRBUF_SIZE], *wifi_name, *ble_name;
   u_char              message[16];
   time_t              secs;
   pcap_t             *session = NULL;
@@ -77,8 +79,16 @@ int main(int argc,char *argv[]) {
   struct utsname      sys_uname;
   static time_t       last_debug = 0;
 
-  key = (uint8_t *) default_key;
-  iv  = (uint8_t *) default_iv;
+  memset(&RID_data,0,sizeof(RID_data));
+  memset(message,  0,sizeof(message));
+
+  memset(key,0,sizeof(key));
+  memset(iv, 0,sizeof(iv));
+
+  memcpy(key,default_key,sizeof(default_key));
+  memcpy(iv, default_iv, sizeof(default_iv));
+
+  wifi_name = ble_name = (char *) dummy;
 
 #if DEBUG_FILE
 
@@ -90,24 +100,60 @@ int main(int argc,char *argv[]) {
   
   if (!strncmp("i686",sys_uname.machine,4)) {
   
-    device_name = (char *) device_i686;
+    wifi_name = (char *) device_i686;
 
   } else {
 
-    device_name = (char *) device_pi;
+    wifi_name = (char *) device_pi;
   }
 
-  fputs(argv[0],stderr);
+  /* Parse the command line. */
   
   for (i = 1; i < argc; ++i) {
 
-    fprintf(stderr, " %s",arg = argv[i]);
+    arg = argv[i];
   
-    if (*argv[i] == '-') {
+    if (*arg == '-') {
 
       switch (arg[1]) {
 
-      case 'x':
+      case 'b': /* BLE device */
+
+        if (++i < argc) {
+          ble_name = argv[i];
+        }
+
+        break;
+    
+      case 'k': /* key */
+
+        if (++i < argc) {
+          strncpy((char *) key,argv[i],MAX_KEY_LEN);
+        }
+
+        break;
+
+      case 'n': /* nonce/iv */
+
+        if (++i < argc) {
+          strncpy((char *) iv,argv[i],MAX_KEY_LEN);
+        }
+
+        break;
+
+      case 'u': /*  */
+
+        break;
+
+      case 'w': /* WiFi device */
+
+        if (++i < argc) {
+          wifi_name = argv[i];
+        }
+
+        break;
+
+      case 'x': /* WiFi device already in monitor mode. */
 
         set_monitor = 0;
         break;
@@ -119,21 +165,20 @@ int main(int argc,char *argv[]) {
     } else {
 
       man_dev     = 1;
-      device_name = arg;
     }
   }
 
-  if (!man_dev) {
+  fprintf(stderr,"%s -w %s -k \'%s\' -n \'%s\'",
+          argv[0],wifi_name,key,iv);
 
-    fprintf(stderr," %s",device_name);
+  if (!set_monitor) {
+
+    fputs(" -x",stderr);
   }
-  
+
   fprintf(stderr,"\n%s %s\n",sys_uname.sysname,sys_uname.machine);
 
   signal(SIGINT,signal_handler);
-
-  memset(&RID_data,0,sizeof(RID_data));
-  memset(message,0,sizeof(message));
 
 #if ASTERIX
 
@@ -156,7 +201,7 @@ int main(int argc,char *argv[]) {
   /* 
    */
 
-  if (!(session = pcap_create(device_name,errbuf))) {
+  if (!(session = pcap_create(wifi_name,errbuf))) {
 
     fprintf(stderr,"pcap_open_live(): %s\n",errbuf);
 
@@ -195,9 +240,9 @@ int main(int argc,char *argv[]) {
 
   bpf_u_int32 netmask = 0;
 
-  if (pcap_lookupnet(device_name,&network,&netmask,errbuf) < 0) {
+  if (pcap_lookupnet(wifi_name,&network,&netmask,errbuf) < 0) {
 
-    fprintf(stderr,"pcap_lookupnet(%s): %s\n",device_name,errbuf);
+    fprintf(stderr,"pcap_lookupnet(%s): %s\n",wifi_name,errbuf);
   }
 
 #endif
@@ -311,14 +356,18 @@ int main(int argc,char *argv[]) {
                 RID_data[i].mac[3],RID_data[i].mac[4],RID_data[i].mac[5],
                 RID_data[i].packets);
 #if ASTERIX
-        fprintf(stderr,"%10lu %10lu %s\n",
+        fprintf(stderr,"%10lu %10lu %-20s ",
                 RID_data[i].last_rx,RID_data[i].last_retx,
                 RID_data[i].odid_data.OperatorID.OperatorId);
 #else
-        fprintf(stderr,"%10lu %s\n",
+        fprintf(stderr,"%10lu %-20s ",
                 RID_data[i].last_rx,
                 RID_data[i].odid_data.OperatorID.OperatorId);
 #endif
+#if VERIFY
+        fputs(printable_text(RID_data[i].auth_buffer,RID_data[i].auth_length),stderr);
+#endif
+        fprintf(stderr,"\n");
       }
     }
 #if ID_FRANCE
@@ -509,7 +558,6 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
 void parse_odid(u_char *mac,u_char *payload,int length) {
 
   int                       i, oldest, RID_index, page;
-  char                      c;
   time_t                    secs, oldest_secs;
   ODID_UAS_Data             UAS_data;
   ODID_MessagePack_encoded *encoded_data = (ODID_MessagePack_encoded *) payload;
@@ -560,13 +608,15 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
               uav->mac[3],uav->mac[4],uav->mac[5]);
     }
 
-    RID_index      = oldest;
-    uav->last_rx   = secs;
-    uav->last_retx = 0;
-    uav->packets   = 0;
+    RID_index        = oldest;
+    uav->last_rx     = secs;
+    uav->last_retx   = 0;
+    uav->packets     = 0;
+    uav->auth_length = 0;
 
     memcpy(uav->mac,mac,6);
-    memset(&uav->odid_data,0,sizeof(ODID_UAS_Data));
+    memset(&uav->odid_data, 0,sizeof(ODID_UAS_Data));
+    memset(uav->auth_buffer,0,sizeof(uav->auth_buffer));
   }
 
   ++RID_data[RID_index].packets;
@@ -632,16 +682,10 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
                ((unsigned long int) UAS_data.Auth[page].Timestamp) + ID_OD_AUTH_DATUM);
       }
 
-      printf(", \"auth page %d\" : { \"text\" : \"",page);
+      printf(", \"auth page %d\" : { \"text\" : \"%s\"",page,
+             printable_text(UAS_data.Auth[page].AuthData,
+                            (page) ? ODID_AUTH_PAGE_NONZERO_DATA_SIZE: ODID_AUTH_PAGE_ZERO_DATA_SIZE));
 
-      for (i = 0; i < ((page) ? ODID_AUTH_PAGE_NONZERO_DATA_SIZE: ODID_AUTH_PAGE_ZERO_DATA_SIZE); ++i) {
-
-        c = (char) UAS_data.Auth[page].AuthData[i];
-
-        putchar((isprint(c)&&(c != fwd_slash)) ? c: '.');
-      }
-
-      printf("\"");
 #if 1
       printf(", \"values\" : [");
     
@@ -660,7 +704,7 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
 
 #if VERIFY
 
-  parse_auth(&UAS_data,encoded_data);
+  parse_auth(&UAS_data,encoded_data,&RID_data[RID_index]);
 
 #endif
 
@@ -674,12 +718,7 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
     fprintf(stderr,"%02x ",payload[i]);
   }
   
-  for (i = 0; (i < length)&&(i < 16); ++i) {
-
-    fprintf(stderr,"%c",(isprint(payload[i])&&(payload[i] != fwd_slash)) ? payload[i]: '.');
-  }
-
-  fprintf(stderr,"\n");
+  fprintf(stderr,"%s\n",printable_text(payload,16));
 #endif
 
   return;
@@ -713,19 +752,32 @@ void dump(char *name,uint8_t *data,int len) {
       fprintf(debug_file,"%s 0x%02x",(i) ? ",": "",data[i]);
     }
     
-    fprintf(debug_file," };\n%s_s = \"",name);
-
-    for (i = 0; i < len; ++i) {
-
-      putc((isprint(data[i])&&data[i] != fwd_slash) ? data[i]: '.',debug_file);
-    }
-    
-    fprintf(debug_file,"\";\n");
+    fprintf(debug_file," };\n%s_s = \"%s\";\n",name,printable_text(data,len));
 
     fflush(debug_file);
   }
   
   return;
+}
+
+/*
+ *
+ *  \ is 0x5c
+ */
+
+char *printable_text(uint8_t *data,int len) {
+
+  int    i;
+  static char text[32];
+
+  for (i = 0; (i < 31)&&(i < len); ++i) {
+
+    text[i] = (isprint(data[i])&&(data[i] != '"')&&(data[i] != '\\')) ? (char) data[i]: '.';
+  }
+
+  text[i] = 0;
+
+  return text;
 }
 
 /*

@@ -36,9 +36,7 @@
 static const int          key_len = 16, iv_len = 12, iv_fixed_len = 6, tag_len = 12,
                           plain_len  = 4 * ODID_MESSAGE_SIZE,
                           cipher_len = 4 * ODID_MESSAGE_SIZE;
-static int                auth_length = 0; 
-static uint8_t            key[20], iv[20], cipher_text[128],
-                          auth_buffer[ODID_AUTH_MAX_PAGES * ODID_AUTH_PAGE_NONZERO_DATA_SIZE + 1];
+static uint8_t            key[20], iv[20], cipher_text[128];
 static uint64_t           cry_ctl_params[3];
 static FILE              *debug_file = NULL;
 // static gcry_ctx_t         cry_ctx;
@@ -56,8 +54,6 @@ int init_crypto(uint8_t *_key,int _key_len,uint8_t *_iv,int _iv_len,
 
   debug_file = debug;
 
-  memset(auth_buffer,0,sizeof(auth_buffer));
-  
   //
 
   memset(iv,         0,sizeof(iv));
@@ -111,12 +107,11 @@ int init_crypto(uint8_t *_key,int _key_len,uint8_t *_iv,int _iv_len,
  *
  */
 
-void parse_auth(ODID_UAS_Data *UAS_data,ODID_MessagePack_encoded *encoded_data) {
+void parse_auth(ODID_UAS_Data *UAS_data,ODID_MessagePack_encoded *encoded_data,struct UAV_RID *UAV) {
 
-  int                          i, j, k;
-  char                         c;
+  int                          i, j, k, *auth_length= NULL;
   size_t                       res_len;
-  uint8_t                     *sig = NULL, plain_text[128], cry_result[16], *u8;
+  uint8_t                     *sig = NULL, plain_text[128], cry_result[16], *u8, *auth_buffer = NULL;
   ODID_Message_encoded        *messages;
   ODID_Auth_encoded_page_zero *page_zero;
   gcry_error_t                 cry_err;
@@ -124,9 +119,29 @@ void parse_auth(ODID_UAS_Data *UAS_data,ODID_MessagePack_encoded *encoded_data) 
 
   memset(cry_result,0,sizeof(cry_result));
 
-  messages  = (ODID_Message_encoded *) plain_text;
-  page_zero = &encoded_data->Messages[3].auth.page_zero;
+  auth_length = &UAV->auth_length; 
+  auth_buffer =  UAV->auth_buffer;
   
+  messages    = (ODID_Message_encoded *) plain_text;
+  page_zero   = &encoded_data->Messages[3].auth.page_zero;
+  
+  for (i = 0; i < ODID_AUTH_MAX_PAGES; ++i) {
+
+    if (UAS_data->AuthValid[i]) {
+
+      j = (i < 1) ? ODID_AUTH_PAGE_ZERO_DATA_SIZE:
+                    ODID_AUTH_PAGE_NONZERO_DATA_SIZE;
+      k = (i < 1) ? 0:
+                    ODID_AUTH_PAGE_ZERO_DATA_SIZE + ((i - 1) * ODID_AUTH_PAGE_NONZERO_DATA_SIZE);
+
+      memcpy(&auth_buffer[k],UAS_data->Auth[i].AuthData,j);
+
+      if (*auth_length < (j + k)) {
+        *auth_length = j + k;
+      }
+    }
+  }
+
   if ((encoded_data->MsgPackSize > 3)&&
       (encoded_data->Messages[0].basicId.MessageType  == ODID_MESSAGETYPE_BASIC_ID)&&
       (encoded_data->Messages[1].basicId.MessageType  == ODID_MESSAGETYPE_BASIC_ID)&&
@@ -169,18 +184,7 @@ void parse_auth(ODID_UAS_Data *UAS_data,ODID_MessagePack_encoded *encoded_data) 
     cry_err = gcry_cipher_final(aes_cipher_handle);
     cry_err = gcry_cipher_gettag(aes_cipher_handle,cry_result,res_len);
 
-    printf(", \"Japanese ID check\" : [");
-
-    printf(" \"%s\"",(memcmp(sig,cry_result,tag_len) == 0) ? "OK": "Fail");
-
-#if 1 
-    for (i = 0; i < res_len; ++i) {
-
-      printf(", %d",cry_result[i]);
-    }
-#endif
-    
-    printf(" ]");
+    printf(", \"Japanese ID check\" : \"%s\"",(memcmp(sig,cry_result,tag_len) == 0) ? "Pass": "Fail");
 
     if (++pass == 1) {
     
@@ -194,34 +198,9 @@ void parse_auth(ODID_UAS_Data *UAS_data,ODID_MessagePack_encoded *encoded_data) 
 
   } else {
 
-    for (i = 0; i < ODID_AUTH_MAX_PAGES; ++i) {
+    if (*auth_length) {
 
-      if (UAS_data->AuthValid[i]) {
-
-        j = (i < 1) ? ODID_AUTH_PAGE_ZERO_DATA_SIZE:
-                      ODID_AUTH_PAGE_NONZERO_DATA_SIZE;
-        k = (i < 1) ? 0:
-                      ODID_AUTH_PAGE_ZERO_DATA_SIZE + ((i - 1) * ODID_AUTH_PAGE_NONZERO_DATA_SIZE);
-
-        memcpy(&auth_buffer[k],UAS_data->Auth[i].AuthData,j);
-
-        if (auth_length < (j + k)) {
-          auth_length = j + k;
-        }
-      }
-    }
-
-    if (auth_length) {
-
-      printf(", \"authentication\" : \"");
-
-      for (i = 0; i < auth_length; ++i) {
-
-        c = auth_buffer[i];
-        putchar((isprint(c)&&(c != 0x5c)) ? c: '.');
-      }
-
-      printf("\"");
+      printf(", \"authentication\" : \"%s\"",printable_text(auth_buffer,*auth_length));
     }
   }
   
