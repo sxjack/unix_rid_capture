@@ -11,7 +11,7 @@
 #include "opendroneid.h"
 
 #define MAX_UAVS  20
-#define ASTERIX    1
+#define ASTERIX    0
 #define VERIFY     1
 #define ID_FRANCE  1
 
