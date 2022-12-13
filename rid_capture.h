@@ -12,7 +12,7 @@
 
 #define MAX_UAVS  20
 #define ASTERIX    0
-#define VERIFY     1
+#define VERIFY     0
 #define ID_FRANCE  1
 
 #define ID_OD_AUTH_DATUM  1546300800LU
