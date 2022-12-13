@@ -612,11 +612,13 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
     uav->last_rx     = secs;
     uav->last_retx   = 0;
     uav->packets     = 0;
-    uav->auth_length = 0;
 
     memcpy(uav->mac,mac,6);
     memset(&uav->odid_data, 0,sizeof(ODID_UAS_Data));
+#if VERIFY
+    uav->auth_length = 0;
     memset(uav->auth_buffer,0,sizeof(uav->auth_buffer));
+#endif
   }
 
   ++RID_data[RID_index].packets;
