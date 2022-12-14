@@ -20,7 +20,7 @@ You need a WiFi card/dongle that can be put into monitor mode. If you are using 
 
 ### Compile rid_capture
 
-Install libpcap-dev if required, make sure that all the options at the top of `rid_capture.h` are set to 0 and type make. It may make things easier later on if you edit the default device name near the top of rid_capture.c to match your installation.
+Install libpcap-dev. Make sure that all the options at the top of `rid_capture.h` are set to 0 and type make. It may make things easier later on if you edit the default device name near the top of `rid_capture.c` to match your installation.
 
 ### Running rid_capture
 
@@ -28,11 +28,12 @@ You will probably need to run rid_capture as root or have root set rid_capture s
 
 Run rid_capture. If it suggests that you use the -x option do so. You can override the device name on the command line. The first line that it outputs will show you what device it is using. Control C stops the program.
 
-rid_capture defaults to writing json to stdout. Capture this json to a file, e.g. `rid_capture -x > rid_capture.txt` and then feed it to the rid2gpx.pl script (`rid2gpx.pl < rid_capture.txt`). If this works you will end up with a gpx file that Google Earth will display.
+rid_capture defaults to writing json to stdout. Capture this json to a file, e.g. `rid_capture -x > rid_capture.txt` and then feed the json to the rid2gpx.pl script (`rid2gpx.pl < rid_capture.txt`). If this works you will end up with a gpx file that Google Earth will display.
 
-If nothing is transmitting WiFi RID, rid_capture will peridically put out debug reports saying how may WiFi packets it has seen.
-
-
+If nothing is transmitting WiFi RID, rid_capture will peridically put out debug reports saying how may WiFi packets it has seen. If the program is seeing WiFi RID, the output will look like -
+```
+{ "mac" : "ac:67:b2:09:50:d4", "operator" : "GBR-OP-ZZZZZZZZZZZZ", "uav id" : "SERIAL NUMBER", "uav latitude" :    0.000000, "uav longitude" :    0.000000, "uav altitude" : -1000, "uav heading" : 361, "uav speed" : 255, "seconds" : 0, "base latitude" :    0.000000, "base longitude" :    0.000000, "unix time" : 1546300800 }
+```
 
 
 
