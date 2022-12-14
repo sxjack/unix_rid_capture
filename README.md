@@ -16,7 +16,7 @@ If anybody runs this in the vicinity of an "Arrêté du 27 décembre 2019" Frenc
 
 ### Hardware and Driver
 
-You need a WiFi card/dongle that can be put into monitor mode. If you are using an rtl8812au dongle you will need to build and install a third party driver which is a bit of a palaver. Modify the monitor.sh script as required until it is getting the hardware monitoring channel 6.
+You need a WiFi card/dongle that can be put into monitor mode. If you are using an rtl8812au dongle you will need to build and install a third party driver which is a bit of a palaver. Modify the `monitor.sh` script as required until it is getting the hardware monitoring channel 6.
 
 ### Compile rid_capture
 
@@ -28,7 +28,7 @@ You will probably need to run rid_capture as root or have root set rid_capture s
 
 Run rid_capture. If it suggests that you use the -x option do so. You can override the device name on the command line. The first line that it outputs will show you what device it is using. Control C stops the program.
 
-rid_capture defaults to writing json to stdout. Capture this json to a file, e.g. `rid_capture -x > rid_capture.txt` and then feed the json to the rid2gpx.pl script (`rid2gpx.pl < rid_capture.txt`). If this works you will end up with a gpx file that Google Earth will display.
+rid_capture defaults to writing json to stdout. Capture this json to a file, e.g. `./rid_capture -x > rid_capture.txt` and then feed the json to the rid2gpx.pl script (`./scripts/rid2gpx.pl < rid_capture.txt`). If this works you will end up with a gpx file that Google Earth will display.
 
 If nothing is transmitting WiFi RID, rid_capture will peridically put out debug reports saying how may WiFi packets it has seen. If the program is seeing WiFi RID, the output will look like -
 ```
