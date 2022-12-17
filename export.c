@@ -140,7 +140,9 @@ int fa_export(time_t secs,struct UAV_RID *RID_data) {
     for (uav = 0, j = 0; uav < MAX_UAVS; ++uav) {
 
       if ((RID_data[uav].mac[0])&&
-          (RID_data[uav].odid_data.System.Timestamp)) {
+          (RID_data[uav].odid_data.System.Timestamp)&&
+          (RID_data[uav].odid_data.Location.Latitude)&&
+          (RID_data[uav].odid_data.Location.Longitude)) {
 
         if (j++) {
           fputs(",\n",output);

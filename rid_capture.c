@@ -161,31 +161,24 @@ int main(int argc,char *argv[]) {
       switch (arg[1]) {
 
       case 'b': /* BLE device */
-
         if (++i < argc) {
           ble_name = argv[i];
         }
-
         break;
     
       case 'k': /* key */
-
         if (++i < argc) {
           strncpy((char *) key,argv[i],MAX_KEY_LEN);
         }
-
         break;
 
       case 'n': /* nonce/iv */
-
         if (++i < argc) {
           strncpy((char *) iv,argv[i],MAX_KEY_LEN);
         }
-
         break;
 
       case 'p':
-        
         if (++i < argc) {
           if ((j = atoi(argv[i])) > 1023) {
             port = j;
@@ -193,16 +186,13 @@ int main(int argc,char *argv[]) {
         }
 
       case 'u': /* UDP output. */
-
         enable_udp = 1;
         break;
 
       case 'w': /* WiFi device */
-
         if (++i < argc) {
           wifi_name = argv[i];
         }
-
         break;
 
       case 'x': /* WiFi device already in monitor mode. */
@@ -258,21 +248,6 @@ int main(int argc,char *argv[]) {
   
 #if ASTERIX
   asterix_init();
-#endif
-
-#if FIFO_INPUT
-
-  if (mkfifo(named_pipe,file_mode) == 0) {
-
-    chmod(named_pipe,file_mode);
-    chown(named_pipe,nobody,nogroup);
-
-  } else {
-
-    fprintf(stderr,"Unable to create \'%s\': %s\n",
-            named_pipe,strerror(errno));
-  }
-  
 #endif
 
   key_len = strlen((char *) key);
@@ -397,11 +372,12 @@ int main(int argc,char *argv[]) {
     if (nrf_child > 0) {
 
       for (j = 0; j < 4; ++j) {
-      
-        if (bytes = read(nrf_pipe,nrf_buffer,16)) {
 
-          parse_nrf_sniffer(nrf_buffer,bytes);
+        if ((bytes = read(nrf_pipe,nrf_buffer,16)) < 1) {
+          break;
         }
+
+        parse_nrf_sniffer(nrf_buffer,bytes);
       }
     }
 #endif
@@ -475,7 +451,6 @@ int main(int argc,char *argv[]) {
   pcap_close(session);
 
   if (enable_udp) {
-
     close(json_socket);
   }
 
@@ -532,7 +507,6 @@ int main(int argc,char *argv[]) {
       time(&secs);
 
       if ((secs - term_sent) > 4) {
-
         kill(nrf_child,SIGKILL);
       }
       
@@ -560,7 +534,6 @@ void list_devices(char *errbuf) {
   if (pcap_findalldevs(&devices,errbuf) < 0) {
 
     fprintf(stderr,"pcap_findalldevs(): %s\n",errbuf);
-
     return;
   }
 
