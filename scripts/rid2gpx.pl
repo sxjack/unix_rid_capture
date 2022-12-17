@@ -6,20 +6,31 @@
 
 use JSON qw(decode_json);
 
+$operator  = "UNKNOWN";
+$timestamp = 0;
+
 while (<>) {
 
     $a = decode_json($_);
 
     $mac       = $$a{'mac'};
-    $timestamp = $$a{'unix time'};
-    $operator  = $$a{'operator'};
+    $t         = $$a{'unix time'};
+    $o         = $$a{'operator'};
     $latitude  = $$a{'uav latitude'};
     $longitude = $$a{'uav longitude'};
     $alt_msl   = $$a{'uav altitude'};
     $heading   = $$a{'uav heading'};
     $speed     = $$a{'uav speed'};
 
-    if (($mac)&&($timestamp)&&($latitude)&&($longitude)) {
+    if ($t) {
+        $timestamp = $t;
+    }
+
+    if ($o) {
+        $operator = $o;
+    }
+    
+    if (($mac)&&($timestamp > 1000000)&&($latitude)&&($longitude)) {
     
         ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = gmtime($timestamp);
     
