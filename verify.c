@@ -110,6 +110,7 @@ int init_crypto(uint8_t *_key,int _key_len,uint8_t *_iv,int _iv_len,
 void parse_auth(ODID_UAS_Data *UAS_data,ODID_MessagePack_encoded *encoded_data,struct UAV_RID *UAV) {
 
   int                          i, j, k, *auth_length= NULL;
+  char                         text[64];
   size_t                       res_len;
   uint8_t                     *sig = NULL, plain_text[128], cry_result[16], *u8, *auth_buffer = NULL;
   ODID_Message_encoded        *messages;
@@ -184,8 +185,9 @@ void parse_auth(ODID_UAS_Data *UAS_data,ODID_MessagePack_encoded *encoded_data,s
     cry_err = gcry_cipher_final(aes_cipher_handle);
     cry_err = gcry_cipher_gettag(aes_cipher_handle,cry_result,res_len);
 
-    printf(", \"Japanese ID check\" : \"%s\"",(memcmp(sig,cry_result,tag_len) == 0) ? "Pass": "Fail");
-
+    sprintf(text,", \"Japanese ID check\" : \"%s\"",(memcmp(sig,cry_result,tag_len) == 0) ? "Pass": "Fail");
+    write_json(text);
+    
     if (++pass == 1) {
     
       dump("key",key,16);
@@ -200,7 +202,8 @@ void parse_auth(ODID_UAS_Data *UAS_data,ODID_MessagePack_encoded *encoded_data,s
 
     if (*auth_length) {
 
-      printf(", \"authentication\" : \"%s\"",printable_text(auth_buffer,*auth_length));
+      sprintf(text,", \"authentication\" : \"%s\"",printable_text(auth_buffer,*auth_length));
+      write_json(text);
     }
   }
   

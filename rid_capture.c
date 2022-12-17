@@ -7,6 +7,12 @@
  *
  * MIT licence
  *
+ * Options
+ *
+ * -u Send the output to localhost UDP port 32001.
+ * -w <WiFi device>
+ * -x WiFi is already in monitor mode.
+ *
  * Notes
  *
  * Developed on -
@@ -32,36 +38,58 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <signal.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
 #include <time.h>
+#include <pwd.h>
 
+#include <sys/stat.h>
+#include <sys/socket.h>
 #include <sys/utsname.h>
+#include <sys/wait.h>
+
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 #include <pcap/pcap.h>
 
 #include "rid_capture.h"
 
-#define BUFFER_SIZE 2048
-#define MAX_KEY_LEN   16
+#define BUFFER_SIZE   2048
+#define MAX_KEY_LEN     16
 
 unsigned char             key[MAX_KEY_LEN + 2], iv[MAX_KEY_LEN + 2];
+uid_t                     nobody  = 0;
+gid_t                     nogroup = 0;
+const mode_t              file_mode = 0666, dir_mode = 0777;
 
+static int                header_type = 0, enable_udp = 0, json_socket = -1;
+static unsigned int       port = 32001;
+static volatile int       end_program  = 0;
 static FILE              *debug_file = NULL;
-static const char         default_key[] = "0123456789abcdef", default_iv[] = "nopqrs",
-                          debug_filename[] = "debug.txt";
-static volatile int       end_program  = 0, header_type = 0;
+static const char         default_key[]    = "0123456789abcdef",
+                          default_iv[]     = "nopqrs",
+                          debug_filename[] = "debug.txt",
+                         *filter_text      = "ether broadcast or ether dst 51:6f:9a:01:00:00 ",
+                          device_pi[]      = "wlan1",
+                          device_i686[]    = "wlp5s0b1",
+                          device_nrf[]     = "/dev/ttyACM0",
+                          dummy[]          = "";
 static volatile uint32_t  rx_packets = 0, odid_packets = 0;
-static const char        *filter_text     = "ether broadcast or ether dst 51:6f:9a:01:00:00 ",
-                          dummy[] = "", 
-                          device_pi[10]   = "wlan1",
-                          device_i686[10] = "wlp5s0b1";
 static struct UAV_RID     RID_data[MAX_UAVS];
+static struct sockaddr_in server;
+
+#if NRF_SNIFFER
+static int                nrf_pipe = -1;
+#endif
 
 void list_devices(char *);
 void packet_handler(u_char *,const struct pcap_pkthdr *,const u_char *);
-void parse_odid(u_char *,u_char *,int);
-void signal_handler(int);
+
+static void signal_handler(int);
 
 /*
  *
@@ -69,15 +97,29 @@ void signal_handler(int);
 
 int main(int argc,char *argv[]) {
 
-  int                 i, set_monitor = 1, man_dev = 0, key_len, iv_len;
-  char               *arg, errbuf[PCAP_ERRBUF_SIZE], *wifi_name, *ble_name;
+  int                 i, j, set_monitor = 1, man_dev = 0, key_len, iv_len, status,
+                      export_index = 0;
+  char               *arg, errbuf[PCAP_ERRBUF_SIZE], *wifi_name, *ble_name, text[128];
   u_char              message[16];
-  time_t              secs;
+  uid_t               uid;
+  time_t              secs, last_debug = 0, last_export = 0;
   pcap_t             *session = NULL;
   bpf_u_int32         network = 0;
+  struct passwd      *user = NULL;
   struct bpf_program  filter;
   struct utsname      sys_uname;
-  static time_t       last_debug = 0;
+#if NRF_SNIFFER
+  int                 bytes;
+  u_char              nrf_buffer[16];
+  pid_t               nrf_child;
+#endif
+
+  if (user = getpwnam("nobody")) {
+    nobody  = user->pw_uid; 
+    nogroup = user->pw_gid;
+  }
+
+  uid = geteuid();
 
   memset(&RID_data,0,sizeof(RID_data));
   memset(message,  0,sizeof(message));
@@ -88,7 +130,8 @@ int main(int argc,char *argv[]) {
   memcpy(key,default_key,sizeof(default_key));
   memcpy(iv, default_iv, sizeof(default_iv));
 
-  wifi_name = ble_name = (char *) dummy;
+  wifi_name = (char *) dummy;
+  ble_name  = (char *) device_nrf;
 
 #if DEBUG_FILE
 
@@ -141,8 +184,17 @@ int main(int argc,char *argv[]) {
 
         break;
 
-      case 'u': /*  */
+      case 'p':
+        
+        if (++i < argc) {
+          if ((j = atoi(argv[i])) > 1023) {
+            port = j;
+          }
+        }
 
+      case 'u': /* UDP output. */
+
+        enable_udp = 1;
         break;
 
       case 'w': /* WiFi device */
@@ -168,21 +220,58 @@ int main(int argc,char *argv[]) {
     }
   }
 
-  fprintf(stderr,"%s -w %s -k \'%s\' -n \'%s\'",
-          argv[0],wifi_name,key,iv);
+  fprintf(stderr,"%s -w %s",argv[0],wifi_name);
+
+#if VERIFY
+  fprintf(stderr," -k \'%s\' -n \'%s\'",key,iv);
+#endif
 
   if (!set_monitor) {
-
     fputs(" -x",stderr);
+  }
+
+  if (enable_udp) {
+    fprintf(stderr," -p %u",port);
   }
 
   fprintf(stderr,"\n%s %s\n",sys_uname.sysname,sys_uname.machine);
 
   signal(SIGINT,signal_handler);
 
-#if ASTERIX
+  if (enable_udp) {
 
+    status = 0;
+
+    if ((json_socket = socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)) >= 0) {
+
+      memset(&server,0,sizeof(server));
+      server.sin_family = AF_INET;
+      server.sin_port   = htons(port);
+      inet_aton("127.0.0.1",&server.sin_addr);
+    }
+    
+#if 0
+    fprintf(stderr,"opening socket, %08x/%04x, %d\n",
+            (uint32_t) server.sin_addr.s_addr,server.sin_port,json_socket);
+#endif
+  }
+  
+#if ASTERIX
   asterix_init();
+#endif
+
+#if FIFO_INPUT
+
+  if (mkfifo(named_pipe,file_mode) == 0) {
+
+    chmod(named_pipe,file_mode);
+    chown(named_pipe,nobody,nogroup);
+
+  } else {
+
+    fprintf(stderr,"Unable to create \'%s\': %s\n",
+            named_pipe,strerror(errno));
+  }
   
 #endif
 
@@ -190,12 +279,10 @@ int main(int argc,char *argv[]) {
   iv_len  = strlen((char *) iv);
 
 #if VERIFY
-
   if (i = init_crypto(key,key_len,iv,iv_len,debug_file)) {
 
     exit(i);
-  }
-  
+  } 
 #endif
   
   /* 
@@ -247,16 +334,21 @@ int main(int argc,char *argv[]) {
 
 #endif
 
-  if (pcap_activate(session)) {
+  if (i = pcap_activate(session)) {
 
-    fprintf(stderr,"pcap_activate():  %s\n",pcap_geterr(session));
-    fputs("This error may mean that your wifi hardware is not capable of being put into monitor mode.\n",stderr);
+    fprintf(stderr,"\npcap_activate():  %s, %s\n",
+            pcap_geterr(session),pcap_strerror(i));
+    fputs("This error may mean that you don\'t have permission to access your wifi hardware or that it is not capable of being put into monitor mode.\n",stderr);
 
     if (set_monitor) {
-
       fputs("Try setting monitor mode using iw and using the -x option to this program.\n",stderr);
-     }
+    }
 
+    if (uid) {
+      fputs("You made need to run this program as root.\n",stderr);
+    }
+
+    fputs("\n",stderr);
     list_devices(errbuf);
 
     exit(1);
@@ -278,6 +370,10 @@ int main(int argc,char *argv[]) {
     fprintf(stderr,"pcap_setfilter():  %s\n",pcap_geterr(session));
   }
 
+#if NRF_SNIFFER
+  nrf_child = start_nrf_sniffer(ble_name,&nrf_pipe);
+#endif
+  
   /* 
    */
 
@@ -293,51 +389,95 @@ int main(int argc,char *argv[]) {
       } while (secs < (last_debug + 2));
   }
 
-  fprintf(stderr,"Capturing (type %d)\n",header_type);
-
   while (!end_program) {
     
     pcap_loop(session,1,packet_handler,message);
+
+#if NRF_SNIFFER
+    if (nrf_child > 0) {
+
+      for (j = 0; j < 4; ++j) {
+      
+        if (bytes = read(nrf_pipe,nrf_buffer,16)) {
+
+          parse_nrf_sniffer(nrf_buffer,bytes);
+        }
+      }
+    }
+#endif
 
     time(&secs);
 
     if ((secs - last_debug) > 9) {
 
-      printf("{ \"debug\" : \"rx packets %u (%u)\" }\n",rx_packets,odid_packets);
-
+      sprintf(text,"{ \"debug\" : \"rx packets %u (%u)\" }\n",rx_packets,odid_packets);
+      write_json(text);
+      
       last_debug = secs;
     }
 
-#if 0
+#if 1
     if ((odid_packets % 20) == 19) {
 
-      fputc('.',stderr);
-      fflush(stderr);
+      write(2,".",1);
     }
 #endif
-    
+
+    if ((secs - last_export) > 1) {
+
+      last_export = secs;
+
+      switch (export_index) {
+
+      case 0:
 #if ASTERIX
-    static time_t last_asterix = 0;
-
-    if ((secs - last_asterix) > 4) {
-
-      asterix_transmit(RID_data);
-      
-      last_asterix = secs;
-    }
+        asterix_transmit(RID_data);
 #endif
+        break;
+
+      case 1:
+      case 3:
+#if FA_EXPORT
+        fa_export(secs,RID_data);
+#endif
+        break;
+
+      case 2:
+        break;
+
+      default:
+        break;
+      }
+
+      if (++export_index > 3) {
+        export_index = 0;
+      }
+    }
   }
 
   /* 
    */
 
+#if NRF_SNIFFER
+  time_t term_sent;
+  
+  if (nrf_child > 0) {
+    kill(nrf_child,SIGTERM);
+  }
+
+  time(&term_sent);
+#endif
+
 #if VERIFY
-
   close_crypto();
-
 #endif
 
   pcap_close(session);
+
+  if (enable_udp) {
+
+    close(json_socket);
+  }
 
   if (RID_data[0].mac[0]) {
 
@@ -370,16 +510,39 @@ int main(int argc,char *argv[]) {
         fprintf(stderr,"\n");
       }
     }
-#if ID_FRANCE
-    fprintf(stderr,"\n(Summary excludes French IDs.)\n");
-#endif
   }
 
   if (debug_file) {
 
     fclose(debug_file);
   }
-  
+
+#if NRF_SNIFFER
+  if (nrf_child > 0) {
+
+    int wstatus;
+
+    for (i = 0; i < 10; ++i) {
+      
+      if (waitpid(nrf_child,&wstatus,WNOHANG) > 0) {
+        break;
+      }
+
+      write(2,"*",1);
+      time(&secs);
+
+      if ((secs - term_sent) > 4) {
+
+        kill(nrf_child,SIGKILL);
+      }
+      
+      sleep(1);
+    }
+  }
+#endif
+
+  fprintf(stderr,"\n");
+
   exit(0);
 }
 
@@ -418,7 +581,7 @@ void list_devices(char *errbuf) {
 void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *packet) {
 
   int            i, offset = 36, length, typ, len;
-  char           ssid_tmp[32];
+  char           ssid_tmp[32], text[128];
   u_char        *payload, *val, mac[6];
   u_int16_t     *radiotap_len; 
   static u_char  nan_cluster[6]  = {0x50, 0x6f, 0x9a, 0x01, 0x00, 0xff},
@@ -440,14 +603,16 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
   } else {
 
 #if 1
-    printf("{ \"debug\" : \"%d, ",*radiotap_len);
+    sprintf(text,"{ \"debug\" : \"%d, ",*radiotap_len);
+    write_json(text);
 
     for (i = 0; i < 40; ++i) {
 
-      printf("%02x ",packet[i]);
+      sprintf(text,"%02x ",packet[i]);
+      write_json(text);
     }
         
-    printf("\" }\n");
+    write_json("\" }\n");
 #endif
     return;
   }
@@ -472,18 +637,17 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
           (val[1] == 0x0b)&&
           (val[2] == 0xbc)) {
 
-        parse_odid(mac,&payload[offset + 7],length - offset - 7);
+        parse_odid(mac,&payload[offset + 7],length - offset - 7,0);
  
       } else if ((typ    == 0xdd)&&
                  (val[0] == oui_alliance[0])&& // WiFi Alliance
                  (val[1] == oui_alliance[1])&&
                  (val[2] == oui_alliance[2])) {
 #if 0
-        printf("{ \"debug\" : \"Beacon with Alliance OUI\" }\n");
+        write_json("{ \"debug\" : \"Beacon with Alliance OUI\" }\n");
 #else
         ;
 #endif
-
       } else if ((typ    == 0xdd)&&
                  (val[0] == 0x6a)&& // French ID
                  (val[1] == 0x5c)&&
@@ -491,9 +655,8 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
 #if ID_FRANCE
         parse_id_france(mac,&payload[offset],RID_data);
 #else
-        printf("{ \"debug\" : \"French ID\" }\n");
+        write_json("{ \"debug\" : \"French ID\" }\n");
 #endif
-
       } else if ((typ == 0)&&(!ssid_tmp[0])) {
 
         for (i = 0; (i < 32)&&(i < len); ++i) {
@@ -508,23 +671,24 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
   } else {
 
 #if 0
-
-    printf("{ \"debug\" : \"%d | ",length);
+    sprintf(text,"{ \"debug\" : \"%d | ",length);
+    write_json(text);
 
     for (i = 0; i < 24; ++i) {
 
-      printf("%02x ",payload[i]);
+      sprintf(text,"%02x ",payload[i]);
+      write_json(text);
     }
      
-    printf("| ");
+    write_json("| ");
 
     for (i = 44; i < 60; ++i) {
 
-      printf("%02x ",payload[i]);
+      sprintf(text,"%02x ",payload[i]);
+      write_json(text);
     }
      
-    printf("\" }\n");
-    
+    write_json("\" }\n");
 #endif
     
     if (memcmp(nan_cluster,&payload[16],6) == 0) { // NAN
@@ -539,11 +703,11 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
           (payload[offset + 4] == oui_alliance[2])&&
           (memcmp(nan_service,&payload[offset + 9],6) == 0)) {
 
-        /* printf("{ \"debug\" : \"NAN action frame\" }\n"); */
+        /* write_json("{ \"debug\" : \"NAN action frame\" }\n"); */
 
         offset += 20;
       
-        parse_odid(mac,&payload[offset],length - offset);
+        parse_odid(mac,&payload[offset],length - offset,0);
       }
     }
   }
@@ -555,10 +719,10 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
  *
  */
 
-void parse_odid(u_char *mac,u_char *payload,int length) {
+void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
 
-  int                       i, oldest, RID_index, page;
-  time_t                    secs, oldest_secs;
+  int                       i, RID_index, page;
+  char                      json[128];
   ODID_UAS_Data             UAS_data;
   ODID_MessagePack_encoded *encoded_data = (ODID_MessagePack_encoded *) payload;
 
@@ -568,10 +732,201 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
 
   memset(&UAS_data,0,sizeof(UAS_data));
 
-  decodeMessagePack(&UAS_data,encoded_data);
+  /* */
 
-  /* Find the record to store the decoded data in. */
+  RID_index = mac_index(mac,RID_data);
+
+  ++RID_data[RID_index].packets;
+  RID_data[RID_index].rssi = rssi;
+
+  /* Decode */
   
+  switch (payload[0] & 0xf0) {
+
+  case 0x00:
+    decodeBasicIDMessage(&UAS_data.BasicID[0],(ODID_BasicID_encoded *) payload);
+    UAS_data.BasicIDValid[0] = 1;
+    break;
+ 
+  case 0x10:
+    decodeLocationMessage(&UAS_data.Location,(ODID_Location_encoded *) payload);
+    UAS_data.LocationValid = 1;
+    break;
+
+  case 0x20:
+    page = payload[1] & 0x0f;
+    decodeAuthMessage(&UAS_data.Auth[page],(ODID_Auth_encoded *) payload);
+    UAS_data.AuthValid[page] = 1;
+    break;
+
+  case 0x30:
+    decodeSelfIDMessage(&UAS_data.SelfID,(ODID_SelfID_encoded *) payload);
+    UAS_data.SelfIDValid = 1;
+    break;
+
+  case 0x40:
+    decodeSystemMessage(&UAS_data.System,(ODID_System_encoded *) payload);
+    UAS_data.SystemValid = 1;
+    break;
+
+  case 0x50:
+    decodeOperatorIDMessage(&UAS_data.OperatorID,(ODID_OperatorID_encoded *) payload);
+    UAS_data.OperatorIDValid = 1;
+    break;
+
+  case 0xf0:
+    decodeMessagePack(&UAS_data,encoded_data);
+    break;
+  }
+  
+  /* JSON */
+  
+  sprintf(json,"{ \"mac\" : \"%02x:%02x:%02x:%02x:%02x:%02x\"",
+          mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+  write_json(json);
+  
+#if 0
+  sprintf(json,", \"debug\" : \"%d | ",length);
+  write_json(json);
+
+  for (i = 0; i < 16; ++i) {
+
+    sprintf(json,"%02x ",payload[i]);
+    write_json(json);
+  }
+
+  write_json("\"");
+#endif
+
+  if (UAS_data.OperatorIDValid) {
+
+    sprintf(json,", \"operator\" : \"%s\"",UAS_data.OperatorID.OperatorId);
+    write_json(json);
+
+    memcpy(&RID_data[RID_index].odid_data.OperatorID,&UAS_data.OperatorID,sizeof(ODID_OperatorID_data));
+  }
+
+  if (UAS_data.BasicIDValid[0]) {
+
+    sprintf(json,", \"uav id\" : \"%s\"",UAS_data.BasicID[0].UASID);
+    write_json(json);
+
+    memcpy(&RID_data[RID_index].odid_data.BasicID[0],&UAS_data.BasicID[0],sizeof(ODID_BasicID_data));
+  }
+  
+  if (UAS_data.BasicIDValid[1]) {
+
+    memcpy(&RID_data[RID_index].odid_data.BasicID[1],&UAS_data.BasicID[1],sizeof(ODID_BasicID_data));
+  }
+  
+  if (UAS_data.LocationValid) {
+
+    sprintf(json,", \"uav latitude\" : %11.6f, \"uav longitude\" : %11.6f",
+           UAS_data.Location.Latitude,UAS_data.Location.Longitude);
+    write_json(json);
+    sprintf(json,", \"uav altitude\" : %d, \"uav heading\" : %d",
+           (int) UAS_data.Location.AltitudeGeo,(int) UAS_data.Location.Direction);
+    write_json(json);
+    sprintf(json,", \"uav speed\" : %d, \"seconds\" : %d",
+           (int) UAS_data.Location.SpeedHorizontal,(int) UAS_data.Location.TimeStamp);
+    write_json(json);
+
+    memcpy(&RID_data[RID_index].odid_data.Location,&UAS_data.Location,sizeof(ODID_Location_data));
+  }
+  
+  if (UAS_data.SystemValid) {
+
+    sprintf(json,", \"base latitude\" : %11.6f, \"base longitude\" : %11.6f",
+           UAS_data.System.OperatorLatitude,UAS_data.System.OperatorLongitude);
+    write_json(json);
+    sprintf(json,", \"unix time\" : %lu",
+           ((unsigned long int) UAS_data.System.Timestamp) + ID_OD_AUTH_DATUM);
+    write_json(json);
+
+    memcpy(&RID_data[RID_index].odid_data.System,&UAS_data.System,sizeof(ODID_System_data));
+  }
+
+  if (UAS_data.SelfIDValid) {
+
+    memcpy(&RID_data[RID_index].odid_data.SelfID,&UAS_data.SelfID,sizeof(ODID_SelfID_data));
+  }
+
+  for (page = 0; page < ODID_AUTH_MAX_PAGES; ++page) {
+  
+    if (UAS_data.AuthValid[page]) {
+
+      if (page == 0) {
+
+        sprintf(json,", \"unix time (alt)\" : %lu",
+               ((unsigned long int) UAS_data.Auth[page].Timestamp) + ID_OD_AUTH_DATUM);
+        write_json(json);
+      }
+
+      sprintf(json,", \"auth page %d\" : { \"text\" : \"%s\"",page,
+             printable_text(UAS_data.Auth[page].AuthData,
+                            (page) ? ODID_AUTH_PAGE_NONZERO_DATA_SIZE: ODID_AUTH_PAGE_ZERO_DATA_SIZE));
+      write_json(json);
+
+#if 1
+      write_json(", \"values\" : [");
+    
+      for (i = 0; i < ((page) ? ODID_AUTH_PAGE_NONZERO_DATA_SIZE: ODID_AUTH_PAGE_ZERO_DATA_SIZE); ++i) {
+
+        sprintf(json,"%s %d",(i) ? ",":"",UAS_data.Auth[page].AuthData[i]);
+        write_json(json);
+      }
+
+      write_json(" ]");
+#endif
+      write_json(" }");
+    
+      memcpy(&RID_data[RID_index].odid_data.Auth[page],&UAS_data.Auth[page],sizeof(ODID_Auth_data));
+    }
+  }
+
+#if VERIFY
+
+  parse_auth(&UAS_data,encoded_data,&RID_data[RID_index]);
+
+#endif
+
+  write_json(" }\n");
+
+  /* */
+  
+#if 0
+  for (i = 0; (i < length)&&(i < 16); ++i) {
+
+    fprintf(stderr,"%02x ",payload[i]);
+  }
+  
+  fprintf(stderr,"%s\n",printable_text(payload,16));
+#endif
+
+  return;
+}
+
+/*
+ *
+ */
+
+static void signal_handler(int sig) {
+
+  end_program = 1;
+  
+  return;
+}
+
+/*
+ * Function to find a record to store the decoded data in.
+ *
+ */
+
+int mac_index(uint8_t *mac,struct UAV_RID *RID_data) {
+
+  int    i, RID_index = 0, oldest = 0;
+  time_t secs, oldest_secs;
+
   time(&secs);
 
   RID_index   =
@@ -601,11 +956,18 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
 
     uav = &RID_data[oldest];
 
+    fprintf(stderr,"%02x:%02x:%02x:%02x:%02x:%02x - ",
+            mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+
     if (uav->mac[0]) {
 
-      fprintf(stderr,"Reusing RID record %d (%02x:%02x:%02x:%02x:%02x:%02x)\n",oldest,
+      fprintf(stderr,"reusing RID record %d (%02x:%02x:%02x:%02x:%02x:%02x)\n",oldest,
               uav->mac[0],uav->mac[1],uav->mac[2],
               uav->mac[3],uav->mac[4],uav->mac[5]);
+
+    } else {
+
+      fprintf(stderr,"using RID record %d\n",oldest);
     }
 
     RID_index        = oldest;
@@ -615,126 +977,14 @@ void parse_odid(u_char *mac,u_char *payload,int length) {
 
     memcpy(uav->mac,mac,6);
     memset(&uav->odid_data, 0,sizeof(ODID_UAS_Data));
+
 #if VERIFY
     uav->auth_length = 0;
     memset(uav->auth_buffer,0,sizeof(uav->auth_buffer));
 #endif
   }
 
-  ++RID_data[RID_index].packets;
-
-  /* JSON */
-  
-  printf("{ \"mac\" : \"%02x:%02x:%02x:%02x:%02x:%02x\"",
-         mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
-
-  if (UAS_data.OperatorIDValid) {
-
-    printf(", \"operator\" : \"%s\"",UAS_data.OperatorID.OperatorId);
-
-    memcpy(&RID_data[RID_index].odid_data.OperatorID,&UAS_data.OperatorID,sizeof(ODID_OperatorID_data));
-  }
-
-  if (UAS_data.BasicIDValid[0]) {
-
-    printf(", \"uav id\" : \"%s\"",UAS_data.BasicID[0].UASID);
-
-    memcpy(&RID_data[RID_index].odid_data.BasicID[0],&UAS_data.BasicID[0],sizeof(ODID_BasicID_data));
-  }
-  
-  if (UAS_data.BasicIDValid[1]) {
-
-    memcpy(&RID_data[RID_index].odid_data.BasicID[1],&UAS_data.BasicID[1],sizeof(ODID_BasicID_data));
-  }
-  
-  if (UAS_data.LocationValid) {
-
-    printf(", \"uav latitude\" : %11.6f, \"uav longitude\" : %11.6f",
-           UAS_data.Location.Latitude,UAS_data.Location.Longitude);
-    printf(", \"uav altitude\" : %d, \"uav heading\" : %d",
-           (int) UAS_data.Location.AltitudeGeo,(int) UAS_data.Location.Direction);
-    printf(", \"uav speed\" : %d, \"seconds\" : %d",
-           (int) UAS_data.Location.SpeedHorizontal,(int) UAS_data.Location.TimeStamp);
-
-    memcpy(&RID_data[RID_index].odid_data.Location,&UAS_data.Location,sizeof(ODID_Location_data));
-  }
-  
-  if (UAS_data.SystemValid) {
-
-    printf(", \"base latitude\" : %11.6f, \"base longitude\" : %11.6f",
-           UAS_data.System.OperatorLatitude,UAS_data.System.OperatorLongitude);
-    printf(", \"unix time\" : %lu",
-           ((unsigned long int) UAS_data.System.Timestamp) + ID_OD_AUTH_DATUM);
-
-    memcpy(&RID_data[RID_index].odid_data.System,&UAS_data.System,sizeof(ODID_System_data));
-  }
-
-  if (UAS_data.SelfIDValid) {
-
-    memcpy(&RID_data[RID_index].odid_data.SelfID,&UAS_data.SelfID,sizeof(ODID_SelfID_data));
-  }
-
-  for (page = 0; page < ODID_AUTH_MAX_PAGES; ++page) {
-  
-    if (UAS_data.AuthValid[page]) {
-
-      if (page == 0) {
-
-        printf(", \"unix time (alt)\" : %lu",
-               ((unsigned long int) UAS_data.Auth[page].Timestamp) + ID_OD_AUTH_DATUM);
-      }
-
-      printf(", \"auth page %d\" : { \"text\" : \"%s\"",page,
-             printable_text(UAS_data.Auth[page].AuthData,
-                            (page) ? ODID_AUTH_PAGE_NONZERO_DATA_SIZE: ODID_AUTH_PAGE_ZERO_DATA_SIZE));
-
-#if 1
-      printf(", \"values\" : [");
-    
-      for (i = 0; i < ((page) ? ODID_AUTH_PAGE_NONZERO_DATA_SIZE: ODID_AUTH_PAGE_ZERO_DATA_SIZE); ++i) {
-
-        printf("%s %d",(i) ? ",":"",UAS_data.Auth[page].AuthData[i]);
-      }
-
-      printf(" ]");
-#endif
-      printf(" }");
-    
-      memcpy(&RID_data[RID_index].odid_data.Auth[page],&UAS_data.Auth[page],sizeof(ODID_Auth_data));
-    }
-  }
-
-#if VERIFY
-
-  parse_auth(&UAS_data,encoded_data,&RID_data[RID_index]);
-
-#endif
-
-  printf(" }\n");
-
-  /* */
-  
-#if 0
-  for (i = 0; (i < length)&&(i < 16); ++i) {
-
-    fprintf(stderr,"%02x ",payload[i]);
-  }
-  
-  fprintf(stderr,"%s\n",printable_text(payload,16));
-#endif
-
-  return;
-}
-
-/*
- *
- */
-
-void signal_handler(int sig) {
-
-  end_program = 1;
-  
-  return;
+  return RID_index;
 }
 
 /*
@@ -786,3 +1036,27 @@ char *printable_text(uint8_t *data,int len) {
  *
  */
 
+int write_json(char *json) {
+
+  int status, l;
+  
+  if (json_socket > -1) {
+
+    if ((status = sendto(json_socket,json,l = strlen(json),0,
+                         (struct sockaddr *) &server,sizeof(server))) < 0) {
+
+      fprintf(stderr,"%s(): %d, %d, %d\n",
+              __func__,l,status,errno);
+    }
+
+  } else {
+
+    printf(json);
+  }
+
+  return 0;
+}
+
+/*
+ *
+ */

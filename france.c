@@ -31,8 +31,8 @@
 
 void parse_id_france(uint8_t *mac,uint8_t *payload,struct UAV_RID *RID_data) {
 
-  int            length, i, j, l, t, altitude_msl, height_agl, speed, heading;
-  char           operator[ID_SIZE], serial[ID_SIZE];
+  int            RID_index, length, i, j, l, t, altitude_msl, height_agl, speed, heading;
+  char           text[128], operator[ID_SIZE], serial[ID_SIZE];
   double         latitude, longitude, base_latitude, base_longitude;
   uint8_t       *v;
   time_t         secs;
@@ -46,24 +46,28 @@ void parse_id_france(uint8_t *mac,uint8_t *payload,struct UAV_RID *RID_data) {
 
   time(&secs);
                  
-  operator[0]  = 0;
-  serial[0]    = 0;
+  operator[0]   = 0;
+  serial[0]     = 0;
 
   uav_lat.u32   = 
   uav_long.u32  = 
   base_lat.u32  =
   base_long.u32 = 0;
-
   alt.u16       =
   height.u16    = 0;
+  
+  length        = payload[1] + 2;
+  RID_index     = mac_index(mac,RID_data);
 
-  length = payload[1] + 2;
+  ++RID_data[RID_index].packets;
+
 
   /* Start the JSON output. */
-  
-  printf("{ \"mac\" : \"%02x:%02x:%02x:%02x:%02x:%02x\"",
-         mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
 
+  sprintf(text,"{ \"mac\" : \"%02x:%02x:%02x:%02x:%02x:%02x\"",
+         mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+  write_json(text);
+  
   /* */
 
   for (j = 6; j < length;) {
@@ -92,7 +96,8 @@ void parse_id_france(uint8_t *mac,uint8_t *payload,struct UAV_RID *RID_data) {
 
       operator[i] = 0;
 
-      printf(", \"operator\" : \"%s\"",operator);
+      sprintf(text,", \"operator\" : \"%s\"",operator);
+      write_json(text);
       break;
 
     case  3:
@@ -104,7 +109,8 @@ void parse_id_france(uint8_t *mac,uint8_t *payload,struct UAV_RID *RID_data) {
 
       serial[i] = 0;
 
-      printf(", \"uav id\" : \"%s\"",serial);
+      sprintf(text,", \"uav id\" : \"%s\"",serial);
+      write_json(text);
       break;
 
     case  4:
@@ -183,16 +189,41 @@ void parse_id_france(uint8_t *mac,uint8_t *payload,struct UAV_RID *RID_data) {
   altitude_msl    = alt.i16;
   height_agl      = height.i16;
   
-  printf(", \"uav latitude\" : %11.6f, \"uav longitude\" : %11.6f",
+  sprintf(text,", \"uav latitude\" : %11.6f, \"uav longitude\" : %11.6f",
          latitude,longitude);
-  printf(", \"uav altitude\" : %d, \"uav heading\" : %d",
+  write_json(text);
+  sprintf(text,", \"uav altitude\" : %d, \"uav heading\" : %d",
          altitude_msl,heading);
-  printf(", \"uav speed\" : %d",speed);
-  printf(", \"base latitude\" : %11.6f, \"base longitude\" : %11.6f",
+  write_json(text);
+  sprintf(text,", \"uav speed\" : %d",speed);
+  write_json(text);
+  sprintf(text,", \"base latitude\" : %11.6f, \"base longitude\" : %11.6f",
          base_latitude,base_longitude);
-  printf(", \"unix time\" : %lu",secs);
+  write_json(text);
+  sprintf(text,", \"unix time\" : %lu",secs);
+  write_json(text);
 
-  printf(" }\n");
+  write_json(" }\n");
+
+  /* */
+
+  strcpy(RID_data[RID_index].odid_data.BasicID[0].UASID,serial);
+  strcpy(RID_data[RID_index].odid_data.OperatorID.OperatorId,operator);
+
+  RID_data[RID_index].odid_data.BasicID[0].IDType         = ODID_IDTYPE_SERIAL_NUMBER;
+
+  RID_data[RID_index].odid_data.Location.Latitude         = latitude;
+  RID_data[RID_index].odid_data.Location.Longitude        = longitude;
+  RID_data[RID_index].odid_data.Location.AltitudeGeo      = altitude_msl;
+
+  RID_data[RID_index].odid_data.System.Timestamp          = (uint32_t) (secs - ID_OD_AUTH_DATUM);
+  RID_data[RID_index].odid_data.System.OperatorLatitude   = latitude;
+  RID_data[RID_index].odid_data.System.OperatorLongitude  = longitude;
+
+#if VERIFY
+  strcpy((char *) RID_data[RID_index].auth_buffer,"French");
+  RID_data[RID_index].auth_length = 6;
+#endif
 
   /* */
 
