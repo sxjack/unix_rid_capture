@@ -31,7 +31,7 @@ Install libpcap-dev. Make sure that all the options at the top of `rid_capture.h
 
 ### Running rid_capture
 
-You will probably need to run rid_capture as root.
+`rid_capture` needs to be run as root or with cap_net_raw capabilities (`setcap cap_net_raw+eip rid_capture` as root).
 
 Run rid_capture. If it suggests that you use the -x option do so. You can override the device name on the command line. The first line that it outputs will show you what device it is using. Control C stops the program.
 
