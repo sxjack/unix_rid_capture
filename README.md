@@ -17,6 +17,8 @@ If anybody runs this in the vicinity of an "Arrêté du 27 décembre 2019" Frenc
   * `-x` WiFi device is already in monitor mode.
   * `-u` send the json output to UDP port 32001.
 
+The UDP output can be read using netcat, `nc -lu 32001`.
+
 ## Getting Started
 
 ### Hardware and Driver
