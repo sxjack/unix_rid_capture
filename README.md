@@ -13,9 +13,9 @@ Tested using an rtl8812au based WiFi dongle.
 If anybody runs this in the vicinity of an "Arrêté du 27 décembre 2019" French ID, I would appreciate the debug.txt.
 
 ### Command Line Options
-  * -w <WiFi device>
-  * -x, WiFi device is already in monitor mode.
-  * -u, send the json output to UDP port 32001.
+  * `-w <WiFi device>`
+  * `-x` WiFi device is already in monitor mode.
+  * `-u` send the json output to UDP port 32001.
 
 ## Getting Started
 
