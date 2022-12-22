@@ -30,6 +30,8 @@
 #include <signal.h>
 #include <time.h>
 
+#include <sys/ioctl.h>
+
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
@@ -39,7 +41,7 @@
 #define BLE_BUFFER_SIZE  256
 
 static int            sniffer = -1, scanning = 0;
-static const int      timeout = 1000;
+static const int      timeout = 1000, on = 1;
 static volatile int   end_main = 0;
 static uint32_t       counter = 1;
 
@@ -110,6 +112,14 @@ pid_t start_bluez_sniffer(const char *device) {
     return sniffer;
   }
 
+  if ((status = ioctl(sniffer,FIONBIO,&on)) < 0) { // Should find a way to use O_NONBLOCK?
+
+    fprintf(stderr,"%s(): ioctl() returned %d, %s\n",
+            __func__,status,strerror(status));
+    /* stop_bluez_sniffer();
+       return status; */
+  }
+
 #if STANDALONE
   memset(&hci_ver,0,sizeof(hci_ver));
 
@@ -121,7 +131,7 @@ pid_t start_bluez_sniffer(const char *device) {
     return status;
   }
 
-  fprintf(stderr,"bluez: hci %02x %04x, lmp %02x %04x, manf. %04x\n",
+  fprintf(stderr,"bluez local version: hci %02x %04x, lmp %02x %04x, manf. %04x\n",
           hci_ver.hci_ver,hci_ver.hci_rev,
           hci_ver.lmp_ver,hci_ver.lmp_subver,
           hci_ver.manufacturer);
