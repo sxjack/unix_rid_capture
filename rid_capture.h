@@ -13,16 +13,26 @@
 
 #include "opendroneid.h"
 
-#define MAX_UAVS    20
-#define ASTERIX      0
-#define VERIFY       0
-#define NRF_SNIFFER  0
-#define ID_FRANCE    1
-#define FA_EXPORT    1
+/* BLE, choose one. */
+#define BLUEZ_SNIFFER  1 /* Linux standard Bluetooth stack. */
+#define NRF_SNIFFER    0 /* nRF52840 dongle running nRF's sniffer program. */
+
+/* WiFi */
+#define ENABLE_PCAP    1
+
+/* Protocols */
+#define ID_FRANCE      1
+
+/* Exports and analysis */
+#define FA_EXPORT      1 /* FlightAware format.                  */
+#define ASTERIX        0 /* Eurocontrol ASTERIX cat. 129 format. */
+#define VERIFY         0 /* For investigating auth messages.     */
+
+#define MAX_UAVS      20
 
 #define ID_OD_AUTH_DATUM  1546300800LU
 
-struct UAV_RID {u_char        mac[6];
+struct UAV_RID {u_char        mac[6], counter[16];
                 unsigned int  packets;
                 time_t        last_rx, last_retx;
                 ODID_UAS_Data odid_data;
@@ -42,6 +52,10 @@ int   write_json(char *);
 pid_t start_nrf_sniffer(const char *,int *);
 void  parse_nrf_sniffer(uint8_t *,int);
 void  stop_nrf_sniffer(void);
+
+int   start_bluez_sniffer(const char *);
+int   parse_bluez_sniffer(void);
+void  stop_bluez_sniffer(void);
 
 void  parse_id_france(uint8_t *,uint8_t *,struct UAV_RID *);
 

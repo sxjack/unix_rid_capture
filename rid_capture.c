@@ -27,6 +27,7 @@
  *
  * To Do
  *
+ * Sort out the hangs that can occur if there is no data being received.
  * Fully setup the WiFi device.
  *
  */
@@ -54,9 +55,11 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#include <pcap/pcap.h>
-
 #include "rid_capture.h"
+
+#if ENABLE_PCAP
+#include <pcap/pcap.h>
+#endif
 
 #define BUFFER_SIZE   2048
 #define MAX_KEY_LEN     16
@@ -66,28 +69,35 @@ uid_t                     nobody  = 0;
 gid_t                     nogroup = 0;
 const mode_t              file_mode = 0666, dir_mode = 0777;
 
-static int                header_type = 0, enable_udp = 0, json_socket = -1;
+static int                enable_udp = 0, json_socket = -1;
 static unsigned int       port = 32001;
 static volatile int       end_program  = 0;
 static FILE              *debug_file = NULL;
 static const char         default_key[]    = "0123456789abcdef",
                           default_iv[]     = "nopqrs",
                           debug_filename[] = "debug.txt",
-                         *filter_text      = "ether broadcast or ether dst 51:6f:9a:01:00:00 ",
                           device_pi[]      = "wlan1",
                           device_i686[]    = "wlp5s0b1",
-                          device_nrf[]     = "/dev/ttyACM0",
                           dummy[]          = "";
 static volatile uint32_t  rx_packets = 0, odid_packets = 0;
 static struct UAV_RID     RID_data[MAX_UAVS];
 static struct sockaddr_in server;
-
-#if NRF_SNIFFER
+#if ENABLE_PCAP
+static int                header_type = 0;
+static const char        *filter_text = "ether broadcast or ether dst 51:6f:9a:01:00:00 ";
+#endif
+#if BLUEZ_SNIFFER
+static int                ble_sniffer = -1;
+static const char         device_bluez[] = "hci0";
+#elif NRF_SNIFFER
 static int                nrf_pipe = -1;
+static const char         device_nrf[] = "/dev/ttyACM0";
 #endif
 
+#if ENABLE_PCAP
 void list_devices(char *);
 void packet_handler(u_char *,const struct pcap_pkthdr *,const u_char *);
+#endif
 
 static void signal_handler(int);
 
@@ -99,14 +109,17 @@ int main(int argc,char *argv[]) {
 
   int                 i, j, set_monitor = 1, man_dev = 0, key_len, iv_len, status,
                       export_index = 0;
-  char               *arg, errbuf[PCAP_ERRBUF_SIZE], *wifi_name, *ble_name, text[128];
+  char               *arg, *wifi_name, *ble_name, text[128];
   u_char              message[16];
   uid_t               uid;
   time_t              secs, last_debug = 0, last_export = 0;
+#if ENABLE_PCAP
+  char                errbuf[PCAP_ERRBUF_SIZE];
   pcap_t             *session = NULL;
   bpf_u_int32         network = 0;
-  struct passwd      *user = NULL;
   struct bpf_program  filter;
+#endif
+  struct passwd      *user = NULL;
   struct utsname      sys_uname;
 #if NRF_SNIFFER
   int                 bytes;
@@ -131,12 +144,14 @@ int main(int argc,char *argv[]) {
   memcpy(iv, default_iv, sizeof(default_iv));
 
   wifi_name = (char *) dummy;
+#if BLUEZ_SNIFFER
+  ble_name  = (char *) device_bluez;
+#elif NRF_SNIFFER
   ble_name  = (char *) device_nrf;
+#endif
 
 #if DEBUG_FILE
-
   debug_file = fopen(debug_filename,"w");
-  
 #endif
   
   uname(&sys_uname);
@@ -263,6 +278,8 @@ int main(int argc,char *argv[]) {
   /* 
    */
 
+#if ENABLE_PCAP
+
   if (!(session = pcap_create(wifi_name,errbuf))) {
 
     fprintf(stderr,"pcap_open_live(): %s\n",errbuf);
@@ -345,7 +362,11 @@ int main(int argc,char *argv[]) {
     fprintf(stderr,"pcap_setfilter():  %s\n",pcap_geterr(session));
   }
 
-#if NRF_SNIFFER
+#endif
+  
+#if BLUEZ_SNIFFER
+  ble_sniffer = start_bluez_sniffer(ble_name);
+#elif NRF_SNIFFER
   nrf_child = start_nrf_sniffer(ble_name,&nrf_pipe);
 #endif
   
@@ -355,6 +376,7 @@ int main(int argc,char *argv[]) {
   time(&secs);
   last_debug = secs;
 
+#if ENABLE_PCAP
   if (header_type != DLT_IEEE802_11_RADIO) {
 
       do {
@@ -363,15 +385,28 @@ int main(int argc,char *argv[]) {
 
       } while (secs < (last_debug + 2));
   }
+#endif
 
+  /* Main loop. */
+	
   while (!end_program) {
-    
+
+#if ENABLE_PCAP
     pcap_loop(session,1,packet_handler,message);
+#endif
 
-#if NRF_SNIFFER
+#if BLUEZ_SNIFFER
+    if (ble_sniffer > -1) {
+      for (j = 0; (j < 4)&&(!end_program); ++j) {
+
+        if (parse_bluez_sniffer() < 1) {
+          break;
+        }
+      }
+    }
+#elif NRF_SNIFFER
     if (nrf_child > 0) {
-
-      for (j = 0; j < 4; ++j) {
+      for (j = 0; (j < 4)&&(!end_program); ++j) {
 
         if ((bytes = read(nrf_pipe,nrf_buffer,16)) < 1) {
           break;
@@ -392,7 +427,7 @@ int main(int argc,char *argv[]) {
       last_debug = secs;
     }
 
-#if 1
+#if 0
     if ((odid_packets % 20) == 19) {
 
       write(2,".",1);
@@ -434,7 +469,9 @@ int main(int argc,char *argv[]) {
   /* 
    */
 
-#if NRF_SNIFFER
+#if BLUEZ_SNIFFER
+  stop_bluez_sniffer();
+#elif NRF_SNIFFER
   time_t term_sent;
   
   if (nrf_child > 0) {
@@ -448,7 +485,9 @@ int main(int argc,char *argv[]) {
   close_crypto();
 #endif
 
+#if ENABLE_PCAP
   pcap_close(session);
+#endif
 
   if (enable_udp) {
     close(json_socket);
@@ -495,6 +534,8 @@ int main(int argc,char *argv[]) {
 #if NRF_SNIFFER
   if (nrf_child > 0) {
 
+    fputs("\nWaiting for child process ",stderr);
+ 
     int wstatus;
 
     for (i = 0; i < 10; ++i) {
@@ -523,6 +564,8 @@ int main(int argc,char *argv[]) {
 /*
  *
  */
+
+#if ENABLE_PCAP
 
 void list_devices(char *errbuf) {
 
@@ -610,7 +653,7 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
           (val[1] == 0x0b)&&
           (val[2] == 0xbc)) {
 
-        parse_odid(mac,&payload[offset + 7],length - offset - 7,0);
+        parse_odid(mac,&payload[offset + 6],length - offset - 6,0);
  
       } else if ((typ    == 0xdd)&&
                  (val[0] == oui_alliance[0])&& // WiFi Alliance
@@ -678,7 +721,7 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
 
         /* write_json("{ \"debug\" : \"NAN action frame\" }\n"); */
 
-        offset += 20;
+        offset += 19;
       
         parse_odid(mac,&payload[offset],length - offset,0);
       }
@@ -688,6 +731,8 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
   return;
 }
 
+#endif // PCAP
+
 /*
  *
  */
@@ -696,14 +741,11 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
 
   int                       i, RID_index, page;
   char                      json[128];
+  uint8_t                   counter, index;
   ODID_UAS_Data             UAS_data;
-  ODID_MessagePack_encoded *encoded_data = (ODID_MessagePack_encoded *) payload;
+  ODID_MessagePack_encoded *encoded_data = (ODID_MessagePack_encoded *) &payload[1];
 
   i = 0;
-
-  ++odid_packets;
-
-  memset(&UAS_data,0,sizeof(UAS_data));
 
   /* */
 
@@ -713,37 +755,50 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
   RID_data[RID_index].rssi = rssi;
 
   /* Decode */
-  
-  switch (payload[0] & 0xf0) {
+
+  counter = payload[0];
+  index   = payload[1] >> 4;
+
+  if (RID_data[RID_index].counter[index] == counter) {
+    return;
+  }
+
+  RID_data[RID_index].counter[index] = counter;
+
+  ++odid_packets;
+
+  memset(&UAS_data,0,sizeof(UAS_data));
+
+  switch (payload[1] & 0xf0) {
 
   case 0x00:
-    decodeBasicIDMessage(&UAS_data.BasicID[0],(ODID_BasicID_encoded *) payload);
+    decodeBasicIDMessage(&UAS_data.BasicID[0],(ODID_BasicID_encoded *) &payload[1]);
     UAS_data.BasicIDValid[0] = 1;
     break;
  
   case 0x10:
-    decodeLocationMessage(&UAS_data.Location,(ODID_Location_encoded *) payload);
+    decodeLocationMessage(&UAS_data.Location,(ODID_Location_encoded *) &payload[1]);
     UAS_data.LocationValid = 1;
     break;
 
   case 0x20:
     page = payload[1] & 0x0f;
-    decodeAuthMessage(&UAS_data.Auth[page],(ODID_Auth_encoded *) payload);
+    decodeAuthMessage(&UAS_data.Auth[page],(ODID_Auth_encoded *) &payload[1]);
     UAS_data.AuthValid[page] = 1;
     break;
 
   case 0x30:
-    decodeSelfIDMessage(&UAS_data.SelfID,(ODID_SelfID_encoded *) payload);
+    decodeSelfIDMessage(&UAS_data.SelfID,(ODID_SelfID_encoded *) &payload[1]);
     UAS_data.SelfIDValid = 1;
     break;
 
   case 0x40:
-    decodeSystemMessage(&UAS_data.System,(ODID_System_encoded *) payload);
+    decodeSystemMessage(&UAS_data.System,(ODID_System_encoded *) &payload[1]);
     UAS_data.SystemValid = 1;
     break;
 
   case 0x50:
-    decodeOperatorIDMessage(&UAS_data.OperatorID,(ODID_OperatorID_encoded *) payload);
+    decodeOperatorIDMessage(&UAS_data.OperatorID,(ODID_OperatorID_encoded *) &payload[1]);
     UAS_data.OperatorIDValid = 1;
     break;
 

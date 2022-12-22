@@ -1,14 +1,17 @@
 # WiFi RID capture
-A program that uses libpcap to capture ASTM F3411 / ASD-STAN 4709-002 UAV direct remote identification signals transmitted over WiFi.
+A program that uses libpcap to capture ASTM F3411 / ASD-STAN 4709-002 UAV direct remote identification signals transmitted over WiFi and Bluetooth. 
 
 Requires 
   * WiFi hardware capable of being put into monitor mode,
-  * libpcap-dev,
+  * libpcap-dev (optional),
+  * bluez (optional)
   * opendroneid.c and opendroneid.h from [opendroneid](https://github.com/opendroneid/opendroneid-core-c/tree/master/libopendroneid).
 
 The output is in json format. An perl script is provided which converts the json into gpx files suitable for Google Earth.
 
 Tested using an rtl8812au based WiFi dongle.
+
+Probably won't receiver BT5 advertising.
 
 If anybody runs this in the vicinity of an "Arrêté du 27 décembre 2019" French ID, I would appreciate the debug.txt.
 
@@ -27,7 +30,7 @@ You need a WiFi card/dongle that can be put into monitor mode. If you are using 
 
 ### Compile rid_capture
 
-Install libpcap-dev. Make sure that all the options at the top of `rid_capture.h` are set to 0 and type make. It may make things easier later on if you edit the default device name near the top of `rid_capture.c` to match your installation.
+Install libpcap-dev and/or bluez. Make sure that all the options at the top of `rid_capture.h` are set correctly and type make. It may make things easier later on if you edit the default device name near the top of `rid_capture.c` to match your installation.
 
 ### Running rid_capture
 
