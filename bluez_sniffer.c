@@ -12,7 +12,7 @@
  * Notes
  *
  * Documentation for bluez is a bit thin on the ground...
- * My thanks to all people who publish example code.
+ * My thanks to everyone who has published example code.
  *
  * On the Pi 3B, running the bluez scanner seems to make the wifi stutter.
  *
@@ -74,7 +74,6 @@ int main(int argc, char *argv[]) {
   if ((status = start_bluez_sniffer("hci0")) == 0) {
 
     while (!end_main) {
-
       parse_bluez_sniffer();
     }
 
@@ -82,7 +81,6 @@ int main(int argc, char *argv[]) {
   }
 
   fprintf(stderr,"\n");
-  
   exit(0);
 }
 
@@ -116,8 +114,6 @@ pid_t start_bluez_sniffer(const char *device) {
 
     fprintf(stderr,"%s(): ioctl() returned %d, %s\n",
             __func__,status,strerror(status));
-    /* stop_bluez_sniffer();
-       return status; */
   }
 
 #if STANDALONE
@@ -276,7 +272,6 @@ int parse_bluez_sniffer() {
             (advert->data[3] == 0xff)) {
 
           ++adverts;
-
           parse_odid(mac,&advert->data[odid_offset],advert->length - odid_offset,0);
         }
 #endif
@@ -304,7 +299,6 @@ void stop_bluez_sniffer() {
 
       create_request(&request,OCF_LE_SET_SCAN_ENABLE,&scan_enable,
                      LE_SET_SCAN_ENABLE_CP_SIZE);
-
       hci_send_req(sniffer,&request,timeout);
 
       scanning = 0;
@@ -326,7 +320,6 @@ void stop_bluez_sniffer() {
 static void main_signal_handler(int sig) {
 
   end_main = 1;
-
   return;
 }
 
