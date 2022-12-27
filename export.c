@@ -43,6 +43,7 @@
 #include "rid_capture.h"
 
 #define FA_HISTORY    0
+#define FA_RECEIVER   0
 #define SQUAWK     7000 // VFR, 7000 in Europe, 1200 in North America.
 
 /*
@@ -55,11 +56,13 @@ extern const mode_t file_mode, dir_mode;
 
 #if FA_EXPORT
 
-static char    fa_dir[] = "data"; 
+static char    fa_dir[] = "data";
+#if FA_RECEIVER || FA_HISTORY
 static double  base_lat = 52.0 + (46.0 / 60.0) + (49.89 / 3600.0), // BMFA
                base_lon =  0.0 - (42.0 / 60.0) - (26.26 / 3600.0); // Buckminster
 
 static void    write_receiver(long int);
+#endif
 
 #endif
 
@@ -89,8 +92,9 @@ int fa_export(time_t secs,struct UAV_RID *RID_data) {
     mkdir(fa_dir,dir_mode);
     chmod(fa_dir,dir_mode);
     chown(fa_dir,nobody,nogroup);
-
+#if FA_RECEIVER
     write_receiver(0);
+#endif
   }
 
   sprintf(filename,"%s/aircraft.json",fa_dir);
@@ -221,6 +225,8 @@ int fa_export(time_t secs,struct UAV_RID *RID_data) {
  *
  */
 
+#if FA_RECEIVER || FA_HISTORY
+
 void write_receiver(long int history) {
 
   char  filename2[128];
@@ -243,6 +249,8 @@ void write_receiver(long int history) {
 
   return;
 }
+
+#endif
 
 /*
  *
