@@ -13,6 +13,8 @@
 
 #include "opendroneid.h"
 
+#define VERSION        0.95
+
 /* BLE, choose one. */
 #define BLUEZ_SNIFFER  1 /* Linux standard Bluetooth stack. */
 #define NRF_SNIFFER    0 /* nRF52840 dongle running nRF's sniffer program. */
@@ -23,10 +25,11 @@
 /* Protocols */
 #define ID_FRANCE      1
 
-/* Exports and analysis */
+/* Outputs and analysis */
 #define FA_EXPORT      1 /* FlightAware format.                  */
 #define ASTERIX        0 /* Eurocontrol ASTERIX cat. 129 format. */
 #define VERIFY         0 /* For investigating auth messages.     */
+#define USE_CURSES     0 /* For testing, displays should use the UDP output. */
 
 #define MAX_UAVS      20
 
