@@ -1,5 +1,5 @@
 #
-# Created for completeness, but I don't bother with it.
+# Created for completeness, but don't bother with it.
 # Just edit rid_capture.h file and use the Makefile.
 #
 
