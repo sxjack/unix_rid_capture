@@ -2,14 +2,16 @@
 A program that captures ASTM F3411 / ASD-STAN 4709-002 UAV direct remote identification signals transmitted over WiFi and Bluetooth. 
 
 Requires 
-  * WiFi hardware capable of being put into monitor mode,
-  * libpcap-dev for capturing WiFi signals (optional),
-  * bluez for capturing Bluetooth signals (optional)
+  * WiFi hardware capable of being put into monitor mode (optional),
+  * libpcap-dev for capturing WiFi signals (optional, I have version 1.8),
+  * bluez for capturing Bluetooth signals (optional, I have version 5.10),
+  * a nRF52840 dongle with the sniffer firmware (optional),
+  * ncurses (optional, I have version 6.1),
   * opendroneid.c and opendroneid.h from [opendroneid](https://github.com/opendroneid/opendroneid-core-c/tree/master/libopendroneid).
 
-The output is in json format. An perl script is provided which converts the json into gpx files suitable for Google Earth.
+The output is in json format. Perl scripts are provided for converting the json into gpx files suitable for Google Earth and displaying it on screen.
 
-Tested using an rtl8812au based WiFi dongle.
+Tested using an rtl8812au based WiFi dongle, an nRF52840 dongle and a Raspberry Pi 3B.
 
 Probably won't receiver BT5 advertising.
 
@@ -30,7 +32,7 @@ You need a WiFi card/dongle that can be put into monitor mode. If you are using 
 
 ### Compile rid_capture
 
-Install libpcap-dev and/or bluez. Make sure that all the options at the top of `rid_capture.h` are set correctly and type make. It may make things easier later on if you edit the default device name near the top of `rid_capture.c` to match your installation.
+Check that the options at the top of `rid_capture.h` match what you want, check that any libraries that you need are installed and type make. It may make things easier later on if you edit the default device name near the top of `rid_capture.c` to match your installation.
 
 ### Running rid_capture
 
