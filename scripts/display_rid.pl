@@ -12,10 +12,10 @@ use IO::Socket;
 use Curses qw(initscr endwin addstr clear refresh curs_set);
 use JSON qw(decode_json);
 
-my $rid_udp = IO::Socket::INET->new(Proto=>"udp",LocalPort=>32001)
-    or die "Failed to create UDP server: $@";
+#
 
 my($end_program,$op_id) = (0,0);
+my($log_dir,$log_file,$filename,$encoding) = ("tmp","foo.json",'',':encoding(UTF-8)');
 my($datagram,$flags);
 my($line,$text);
 my($mac,$operator,$id,$latitude,$longitude,$alt_msl,$heading,$speed);
@@ -27,6 +27,18 @@ my($next_row,$time_row,$debug_row) = (1,11,12);
 my($loc_col,$ts_col) = (40,80);
 my($a,$op,$t);
 my(%mac2row,%mac2time,%mac2op,%mac2id);
+
+# UDP server
+
+my $rid_udp = IO::Socket::INET->new(Proto=>"udp",LocalPort=>32001)
+    or die "Failed to create UDP server: $@";
+
+# log file
+
+# mkdir($log_dir,0777);
+# open(LOG,"> $encoding",$filename = "$log_dir/$log_file") or die "Failed to open \'$filename\': $@";
+
+# Curses
 
 initscr();
 clear();
@@ -44,13 +56,15 @@ $SIG{INT} = \&catch_int;
 $line = '';
 
 for (;!$end_program;) {
-    
-    $rid_udp->recv($datagram,256,$flags);
+
+    # Ensure that the length here is greater than the expected datagram size.
+
+    $rid_udp->recv($datagram,512,$flags);
     $line .= $datagram;
     
     if ($line =~ m/\n/) {
  
-        # print $line;
+        # print LOG $line;
         $a = decode_json($line);
         $line = '';
  
