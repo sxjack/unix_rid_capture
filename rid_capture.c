@@ -68,7 +68,8 @@
 #define LAT_COL         38
 #define LONG_COL        50
 #define ALT_COL         62
-#define SECS_COL        70
+#define TS_L_COL        70
+#define TS_S_COL        76
 #endif
 
 #define BUFFER_SIZE   2048
@@ -86,6 +87,7 @@ static volatile int       end_program  = 0;
 static FILE              *debug_file = NULL;
 static const char         default_key[]    = "0123456789abcdef",
                           default_iv[]     = "nopqrs",
+                          default_server[] = "127.0.0.1",
                           debug_filename[] = "debug.txt",
                           device_pi[]      = "wlan1",
                           device_i686[]    = "wlp5s0b1",
@@ -124,7 +126,7 @@ int main(int argc,char *argv[]) {
 
   int                 i, j, set_monitor = 1, man_dev = 0, key_len, iv_len, status,
                       export_index = 0;
-  char               *arg, *wifi_name, *ble_name, text[128];
+  char               *arg, *wifi_name, *ble_name, *udp_server, text[128];
   u_char              message[16];
   uid_t               uid;
   time_t              secs, last_debug = 0, last_export = 0;
@@ -161,11 +163,12 @@ int main(int argc,char *argv[]) {
   memcpy(key,default_key,sizeof(default_key));
   memcpy(iv, default_iv, sizeof(default_iv));
 
-  wifi_name = (char *) dummy;
+  udp_server = (char *) default_server;
+  wifi_name  = (char *) dummy;
 #if BLUEZ_SNIFFER
-  ble_name  = (char *) device_bluez;
+  ble_name   = (char *) device_bluez;
 #elif NRF_SNIFFER
-  ble_name  = (char *) device_nrf;
+  ble_name   = (char *) device_nrf;
 #endif
 
 #if DEBUG_FILE
@@ -222,6 +225,12 @@ int main(int argc,char *argv[]) {
           }
         }
 
+      case 's': /* UDP server */
+        if (++i < argc) {
+          udp_server = argv[i];
+        }
+        break;
+
       case 'u': /* UDP output. */
         enable_udp = 1;
         break;
@@ -258,7 +267,7 @@ int main(int argc,char *argv[]) {
   }
 
   if (enable_udp) {
-    fprintf(stderr," -p %u",port);
+    fprintf(stderr," -p %u -s %s",port,udp_server);
   }
 
   fprintf(stderr,"\n%s %s\n",sys_uname.sysname,sys_uname.machine);
@@ -274,7 +283,7 @@ int main(int argc,char *argv[]) {
       memset(&server,0,sizeof(server));
       server.sin_family = AF_INET;
       server.sin_port   = htons(port);
-      inet_aton("127.0.0.1",&server.sin_addr);
+      inet_aton(udp_server,&server.sin_addr);
     }
     
 #if 0
@@ -305,9 +314,7 @@ int main(int argc,char *argv[]) {
   if (!(session = pcap_create(wifi_name,errbuf))) {
 
     fprintf(stderr,"pcap_open_live(): %s\n",errbuf);
-
     list_devices(errbuf);
-
     exit(1);
   }
 
@@ -321,9 +328,7 @@ int main(int argc,char *argv[]) {
   if ((status = pcap_can_set_rfmon(session)) != 0) {
 
     fprintf(stderr,"pcap_can_set_rfmon(): cannot set rfmon (%d), aborting\n",status);
-
     pcap_close(session);
-    
     exit(1);
   }
 
@@ -364,7 +369,6 @@ int main(int argc,char *argv[]) {
 
     fputs("\n",stderr);
     list_devices(errbuf);
-
     exit(1);
   }
 
@@ -421,9 +425,11 @@ int main(int argc,char *argv[]) {
       getmaxyx(window,nrows,ncols);
       clear();
       curs_set(0);
+      mvaddstr( 0,OP_COL   + 1,"Operator");
       mvaddstr( 0,LAT_COL  + 1,"Lat.");
       mvaddstr( 0,LONG_COL + 1,"Long.");
       mvaddstr( 0,ALT_COL  + 1, "Alt.");
+      mvaddstr( 0,TS_L_COL + 2, "Timestamps");
       mvaddstr(17,0,"^C to end program");
       refresh();
     }
@@ -906,7 +912,8 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
     memcpy(&RID_data[RID_index].odid_data.OperatorID,&UAS_data.OperatorID,sizeof(ODID_OperatorID_data));
 #if USE_CURSES
     if (window) {
-      mvaddstr(RID_index + 1,OP_COL,UAS_data.OperatorID.OperatorId);
+      sprintf(text,"%-20s",UAS_data.OperatorID.OperatorId);
+      mvaddstr(RID_index + 1,OP_COL,text);
       refresh();
     }
 #endif
@@ -953,7 +960,7 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
       sprintf(text,"%5d ",(int) UAS_data.Location.AltitudeGeo);
       mvaddstr(RID_index + 1,ALT_COL,text);
       sprintf(text,"%4d ",(int) UAS_data.Location.TimeStamp);
-      mvaddstr(RID_index + 1,SECS_COL,text);
+      mvaddstr(RID_index + 1,TS_L_COL,text);
       refresh();
     }
 #endif
@@ -969,6 +976,14 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
     write_json(json);
 
     memcpy(&RID_data[RID_index].odid_data.System,&UAS_data.System,sizeof(ODID_System_data));
+
+#if USE_CURSES
+    if (window) {
+      sprintf(text,"%10u ",(int) UAS_data.System.Timestamp);
+      mvaddstr(RID_index + 1,TS_S_COL,text);
+      refresh();
+    }
+#endif
   }
 
   if (UAS_data.SelfIDValid) {
@@ -1172,19 +1187,50 @@ char *printable_text(uint8_t *data,int len) {
  *
  */
 
+#define UDP_BUFFER_SIZE 500
+
 int write_json(char *json) {
 
-  int status, l;
+  int            status;
+#if UDP_BUFFER_SIZE
+  static int     index = 0;
+  static uint8_t udp_buffer[UDP_BUFFER_SIZE + 2], c;
+#else
+  int            l;
+#endif
   
   if (json_socket > -1) {
 
+#if UDP_BUFFER_SIZE
+    while (*json) {
+
+      udp_buffer[index++] = c = (uint8_t) *json++;
+
+      if ((c     == 0x0a)||
+          (c     == 0x0d)||
+          (index >= UDP_BUFFER_SIZE)){
+
+        udp_buffer[index] = 0;
+        
+        if ((status = sendto(json_socket,udp_buffer,index,0,
+                             (struct sockaddr *) &server,sizeof(server))) < 0) {
+
+          fprintf(stderr,"%s(): %d, %d, %d\n",
+                  __func__,index,status,errno);
+        }
+
+        index = 0;
+        break;
+      }
+    }
+#else
     if ((status = sendto(json_socket,json,l = strlen(json),0,
                          (struct sockaddr *) &server,sizeof(server))) < 0) {
 
       fprintf(stderr,"%s(): %d, %d, %d\n",
               __func__,l,status,errno);
     }
-
+#endif
   } else {
 
     fputs(json,stdout);
