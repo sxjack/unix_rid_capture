@@ -14,8 +14,8 @@ use JSON qw(decode_json);
 
 #
 
-my($end_program,$op_id) = (0,0);
-my($log_dir,$log_file,$filename,$encoding) = ("tmp","foo.json",'',':encoding(UTF-8)');
+my($end_program,$op_id) = (0,1);
+my($log_dir,$log_file,$filename,$encoding) = ("tmp","rid_capture.json",'',':encoding(UTF-8)');
 my($datagram,$flags);
 my($line,$text);
 my($mac,$operator,$id,$latitude,$longitude,$alt_msl,$heading,$speed);
@@ -65,7 +65,9 @@ for (;!$end_program;) {
     if ($line =~ m/\n/) {
  
         # print LOG $line;
-        $a = decode_json($line);
+        eval {
+            $a = decode_json($line);
+        };
         $line = '';
  
         if ($mac = $$a{'mac'}) {
