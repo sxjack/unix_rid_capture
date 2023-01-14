@@ -102,7 +102,8 @@ static const char        *filter_text = "ether broadcast or ether dst 51:6f:9a:0
 #if BLUEZ_SNIFFER
 static int                ble_sniffer = -1;
 static const char         device_bluez[] = "hci0";
-#elif NRF_SNIFFER
+#endif
+#if NRF_SNIFFER
 static int                nrf_pipe = -1;
 static const char         device_nrf[] = "/dev/ttyACM0";
 #endif
@@ -167,7 +168,8 @@ int main(int argc,char *argv[]) {
   wifi_name  = (char *) dummy;
 #if BLUEZ_SNIFFER
   ble_name   = (char *) device_bluez;
-#elif NRF_SNIFFER
+#endif
+#if NRF_SNIFFER
   ble_name   = (char *) device_nrf;
 #endif
 
@@ -392,7 +394,9 @@ int main(int argc,char *argv[]) {
   
 #if BLUEZ_SNIFFER
   ble_sniffer = start_bluez_sniffer(ble_name);
-#elif NRF_SNIFFER
+#endif
+
+#if NRF_SNIFFER
   nrf_child = start_nrf_sniffer(ble_name,&nrf_pipe);
 #endif
   
@@ -464,7 +468,9 @@ int main(int argc,char *argv[]) {
         }
       }
     }
-#elif NRF_SNIFFER
+#endif
+
+#if NRF_SNIFFER
     if (nrf_child > 0) {
       for (j = 0; (j < 4)&&(!end_program); ++j) {
 
@@ -539,7 +545,9 @@ int main(int argc,char *argv[]) {
 
 #if BLUEZ_SNIFFER
   stop_bluez_sniffer();
-#elif NRF_SNIFFER
+#endif
+
+#if NRF_SNIFFER
   time_t term_sent;
   
   if (nrf_child > 0) {
