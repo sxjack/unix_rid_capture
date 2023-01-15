@@ -14,7 +14,7 @@ use JSON qw(decode_json);
 
 #
 
-my($end_program,$op_id) = (0,1);
+my($end_program,$op_id) = (0,0);
 my($log_dir,$log_file,$filename,$encoding) = ("tmp","rid_capture.json",'',':encoding(UTF-8)');
 my($datagram,$flags);
 my($line,$text);
@@ -25,7 +25,7 @@ my($loop_time,$debug);
 my($row,$col) = (0,0);
 my($next_row,$time_row,$debug_row) = (1,11,12);
 my($loc_col,$ts_col) = (40,80);
-my($a,$op,$t);
+my($a,$op,$t,$t2);
 my(%mac2row,%mac2time,%mac2op,%mac2id);
 
 # UDP server
@@ -73,8 +73,9 @@ for (;!$end_program;) {
         if ($mac = $$a{'mac'}) {
 
             $t         = $$a{'unix time'};
+            $t2        = $$a{'unix time (alt)'};
             $op        = $$a{'operator'};
-            $id       = $$a{'uav id'};
+            $id        = $$a{'uav id'};
             $latitude  = $$a{'uav latitude'};
             $longitude = $$a{'uav longitude'};
             $alt_msl   = $$a{'uav altitude'};
@@ -84,6 +85,8 @@ for (;!$end_program;) {
 
             if ($t) {
                 $mac2time{$mac} = $t;
+            } elsif ($t2) {
+                $mac2time{$mac} = $t2;
             }
 
             if ($op) {
@@ -107,18 +110,24 @@ for (;!$end_program;) {
             $text = sprintf("%-18s %-20s ",$mac,($op_id) ? $op: $id);
             addstr($row,0,$text);
 
+            if ($t) {
+
+                ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = gmtime($t);
+                $text = sprintf("%2d-%02d-%02d %02d:%02d:%02d ",
+                                $year % 100,$mon + 1,$mday,$hour,$min,$sec);
+                addstr($row,$ts_col + 6,$text);
+            }
+
             if ($latitude) { # We have a Location message.
 
                 $m = int($hsecs / 60);
                 $s = int($hsecs % 60);
-                ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = gmtime($t);
 
                 $text = sprintf("%-12.6f %-12.6f %4d   %3d   ",
                                 $latitude,$longitude,$alt_msl,$heading);
                 # print "$text\n";
                 addstr($row,$loc_col,$text);
-                $text = sprintf("%02d:%02d %2d-%02d-%02d %02d:%02d:%02d ",
-                                $m,$s,$year % 100,$mon + 1,$mday,$hour,$min,$sec);
+                $text = sprintf("%02d:%02d ",$m,$s);
                 addstr($row,$ts_col,$text);
                 refresh();
             }
