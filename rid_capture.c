@@ -80,7 +80,8 @@ uid_t                     nobody  = 0;
 gid_t                     nogroup = 0;
 const mode_t              file_mode = 0666, dir_mode = 0777;
 
-static int                enable_display = 0, enable_udp = 0, json_socket = -1;
+static int                enable_display = 0, enable_udp = 0, json_socket = -1,
+                          max_udp_length = 0;
 static double             setup_ms = 0.0, loop_us = 0.0;
 static unsigned int       port = 32001;
 static volatile int       end_program  = 0;
@@ -487,8 +488,8 @@ int main(int argc,char *argv[]) {
 
     if ((secs - last_debug) > 9) {
 
-      sprintf(text,"{ \"debug\" : \"rx packets %u (%u)\", \"loop_time_us\" : %.0f }\n",
-              rx_packets,odid_packets,loop_us);
+      sprintf(text,"{ \"debug\" : \"rx packets %u (%u)\", \"loop_time_us\" : %.0f, \"max udp len\" : %d }\n",
+              rx_packets,odid_packets,loop_us,max_udp_length);
       write_json(text);
       
       last_debug = secs;
@@ -816,7 +817,7 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
 
 void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
 
-  int                       i, RID_index, page;
+  int                       i, j, RID_index, page;
   char                      json[128];
   uint8_t                   counter, index;
   ODID_UAS_Data             UAS_data;
@@ -927,19 +928,38 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
 #endif
   }
 
-  if (UAS_data.BasicIDValid[0]) {
+  for (j = 0; j < ODID_BASIC_ID_MAX_MESSAGES; ++j) {
 
-    sprintf(json,", \"uav id\" : \"%s\"",UAS_data.BasicID[0].UASID);
-    write_json(json);
+    if (UAS_data.BasicIDValid[j]) {
 
-    memcpy(&RID_data[RID_index].odid_data.BasicID[0],&UAS_data.BasicID[0],sizeof(ODID_BasicID_data));
+      memcpy(&RID_data[RID_index].odid_data.BasicID[j],&UAS_data.BasicID[j],sizeof(ODID_BasicID_data));
+
+      switch (UAS_data.BasicID[j].IDType) {
+
+      case ODID_IDTYPE_SERIAL_NUMBER:
+        sprintf(json,", \"uav id\" : \"%s\"",UAS_data.BasicID[j].UASID);
+        write_json(json);
+#if USE_CURSES && 0
+        if (window) {
+          sprintf(text,"%-20s",UAS_data.BasicID[j].UASID);
+          mvaddstr(RID_index + 1,OP_COL,text);
+          refresh();
+        }
+#endif
+        break;
+        
+      case ODID_IDTYPE_CAA_REGISTRATION_ID:
+        sprintf(json,", \"caa registration\" : \"%s\"",UAS_data.BasicID[j].UASID);
+        write_json(json);
+        break;
+        
+      case ODID_IDTYPE_NONE:
+      default:
+        break;
+      }
+    }
   }
-  
-  if (UAS_data.BasicIDValid[1]) {
 
-    memcpy(&RID_data[RID_index].odid_data.BasicID[1],&UAS_data.BasicID[1],sizeof(ODID_BasicID_data));
-  }
-  
   if (UAS_data.LocationValid) {
 
     sprintf(json,", \"uav latitude\" : %11.6f, \"uav longitude\" : %11.6f",
@@ -1225,6 +1245,10 @@ int write_json(char *json) {
 
           fprintf(stderr,"%s(): %d, %d, %d\n",
                   __func__,index,status,errno);
+        }
+
+        if (index > max_udp_length) {
+          max_udp_length = index;
         }
 
         index = 0;
