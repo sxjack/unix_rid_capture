@@ -18,15 +18,15 @@ my($end_program,$op_id) = (0,0);
 my($log_dir,$log_file,$filename,$encoding) = ("tmp","rid_capture.json",'',':encoding(UTF-8)');
 my($datagram,$flags);
 my($line,$text);
-my($mac,$operator,$id,$latitude,$longitude,$alt_msl,$heading,$speed);
+my($mac,$operator,$id,$latitude,$longitude,$alt_msl,$heading,$speed,$registration);
 my($hsecs,$unix_time,$m,$s);
 my($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst);
 my($loop_time,$debug);
 my($row,$col) = (0,0);
 my($next_row,$time_row,$debug_row) = (1,11,12);
 my($loc_col,$ts_col) = (40,80);
-my($a,$op,$t,$t2);
-my(%mac2row,%mac2time,%mac2op,%mac2id);
+my($a,$op,$t,$t2,$reg);
+my(%mac2row,%mac2time,%mac2op,%mac2id,%mac2reg);
 
 # UDP server
 
@@ -42,7 +42,13 @@ my $rid_udp = IO::Socket::INET->new(Proto=>"udp",LocalPort=>32001)
 
 initscr();
 clear();
-$text = sprintf("%-18s %-20s ","MAC",($op_id) ? "operator": "ID");
+if ($op_id == 0) {
+    $text = sprintf("%-18s %-20s ","MAC","ID");
+} elsif ($op_id == 1) {
+    $text = sprintf("%-18s %-20s ","MAC","operator");
+} elsif ($op_id == 2) {
+    $text = sprintf("%-18s %-20s ","ID","operator");
+}
 addstr(0,0,$text);
 $text = sprintf("%-12s %-12s %-4s %7s",
                 "latitude","longitude","alt.","heading");
@@ -75,6 +81,7 @@ for (;!$end_program;) {
             $t         = $$a{'unix time'};
             $t2        = $$a{'unix time (alt)'};
             $op        = $$a{'operator'};
+            $reg       = $$a{'caa registration'};
             $id        = $$a{'uav id'};
             $latitude  = $$a{'uav latitude'};
             $longitude = $$a{'uav longitude'};
@@ -93,6 +100,10 @@ for (;!$end_program;) {
                 $mac2op{$mac} = $op;
             }
 
+            if ($reg) {
+                $mac2reg{$mac} = $reg;
+            }
+
             if ($id) {
                 $mac2id{$mac} = $id;
             }
@@ -103,11 +114,18 @@ for (;!$end_program;) {
                 $row = $mac2row{$mac} = $next_row++;
             }
 
-            $op = ($mac2op{$mac})   ? $mac2op{$mac}:   ''; 
-            $id = ($mac2id{$mac})   ? $mac2id{$mac}:   ''; 
-            $t  = ($mac2time{$mac}) ? $mac2time{$mac}: 0; 
-        
-            $text = sprintf("%-18s %-20s ",$mac,($op_id) ? $op: $id);
+            $reg = ($mac2reg{$mac})  ? $mac2reg{$mac}:  ''; 
+            $op  = ($mac2op{$mac})   ? $mac2op{$mac}:   ''; 
+            $id  = ($mac2id{$mac})   ? $mac2id{$mac}:   ''; 
+            $t   = ($mac2time{$mac}) ? $mac2time{$mac}: 0;
+
+            if ($op_id == 0) {
+                $text = sprintf("%-18s %-20s ",$mac,$id);
+            } elsif ($op_id == 1) {
+                $text = sprintf("%-18s %-20s ",$mac,$op);
+            } elsif ($op_id == 2) {
+                $text = sprintf("%-18s %-20s ",$id,$reg);
+            }
             addstr($row,0,$text);
 
             if ($t) {

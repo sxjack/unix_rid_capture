@@ -10,6 +10,7 @@ use JSON qw(decode_json);
 my $operator  = "UNKNOWN";
 my $timestamp = 0;
 my $encoding  = ':encoding(UTF-8)';
+my $gpx_dir   = "gpx";
 
 my($a,$t,$o,$filename);
 my($text,$file);
@@ -18,10 +19,16 @@ my($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst,$zulu);
 my($speed_ms,$name);
 my(%handle);
 
+mkdir($gpx_dir,0777);
 
 while (<>) {
 
-    $a = decode_json($_);
+    eval {
+        $a = decode_json($_);
+    };
+    if ($@) {
+        print STDERR "\n$_$@";
+    }
 
     $mac       = $$a{'mac'};
     $t         = $$a{'unix time'};
@@ -51,7 +58,7 @@ while (<>) {
     
         if (!$handle{$mac}) {
 
-            $filename = "${mac}.gpx";
+            $filename = "${gpx_dir}/${mac}.gpx";
             $filename =~ s/\://g;
 
             print "$filename\n";
