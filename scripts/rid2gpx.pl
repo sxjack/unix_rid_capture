@@ -12,7 +12,7 @@ my $timestamp = 0;
 my $encoding  = ':encoding(UTF-8)';
 my $gpx_dir   = "gpx";
 
-my($a,$t,$o,$filename);
+my($a,$t,$t2,$o,$filename);
 my($text,$file);
 my($mac,$latitude,$longitude,$alt_msl,$heading,$speed,$operator,$timestamp);
 my($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst,$zulu);
@@ -32,6 +32,7 @@ while (<>) {
 
     $mac       = $$a{'mac'};
     $t         = $$a{'unix time'};
+    $t2        = $$a{'unix time (alt)'};
     $o         = $$a{'operator'};
     $latitude  = $$a{'uav latitude'};
     $longitude = $$a{'uav longitude'};
@@ -41,6 +42,8 @@ while (<>) {
 
     if ($t) {
         $timestamp = $t;
+    } elsif ($t2) {
+        $timestamp = $t2;
     }
 
     if ($o) {
