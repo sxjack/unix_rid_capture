@@ -15,6 +15,13 @@
  *
  * Notes
  *
+ * The cryptography for the Japanese ID is probably wrong, but shouldn't be far off.
+ *
+ * The English translation of the specification for the Japanese ID is available at -
+ * https://www.mlit.go.jp/koku/content/001582250.pdf
+ *
+ * There is a slight conflict in the specification over the tag length, 12 or 16?
+ *
  *
  */
 
@@ -147,7 +154,8 @@ void parse_auth(ODID_UAS_Data *UAS_data,ODID_MessagePack_encoded *encoded_data,s
       (encoded_data->Messages[0].basicId.MessageType  == ODID_MESSAGETYPE_BASIC_ID)&&
       (encoded_data->Messages[1].basicId.MessageType  == ODID_MESSAGETYPE_BASIC_ID)&&
       (encoded_data->Messages[2].location.MessageType == ODID_MESSAGETYPE_LOCATION)&&
-      (page_zero->MessageType                         == ODID_MESSAGETYPE_AUTH)) {
+      (page_zero->MessageType                         == ODID_MESSAGETYPE_AUTH)&&
+      (page_zero->AuthType                            == ODID_AUTH_MESSAGE_SET_SIGNATURE)) {
 
     /* Japanese ? */
 
