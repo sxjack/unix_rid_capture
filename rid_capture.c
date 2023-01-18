@@ -3,7 +3,7 @@
  * A program for capturing opendroneid / ASTM F3411 / ASD-STAN 4709-002 
  * WiFi beacon direct remote identification signals.
  *
- * Copyright (c) 2022 Steve Jack
+ * Copyright (c) 2022-2023 Steve Jack
  *
  * MIT licence
  *
@@ -27,8 +27,12 @@
  *
  * To Do
  *
- * 1) Sort out the hangs that can occur if there is no data being received.
- * 2) Fully setup the WiFi device.
+ * For some reason it doesn't like running both bluez and the external bluetooth 
+ * scanners at the same time.
+ *
+ * Sort out the hangs that can occur if there is no data being received.
+ *
+ * Fully setup the WiFi device.
  *
  */
 
@@ -100,13 +104,13 @@ static struct sockaddr_in server;
 static int                header_type = 0;
 static const char        *filter_text = "ether broadcast or ether dst 51:6f:9a:01:00:00 ";
 #endif
+static const char         device_bluez[] = "hci0";
 #if BLUEZ_SNIFFER
 static int                ble_sniffer = -1;
-static const char         device_bluez[] = "hci0";
 #endif
+static const char         device_nrf[] = "/dev/ttyACM0";
 #if NRF_SNIFFER
 static int                nrf_pipe = -1;
-static const char         device_nrf[] = "/dev/ttyACM0";
 #endif
 #if USE_CURSES
 static int                nrows = 20, ncols = 80;
@@ -128,7 +132,8 @@ int main(int argc,char *argv[]) {
 
   int                 i, j, set_monitor = 1, man_dev = 0, key_len, iv_len, status,
                       export_index = 0;
-  char               *arg, *wifi_name, *ble_name, *udp_server, text[128];
+  char               *arg, *wifi_name, *nrf_name, *bluez_name, *udp_server,
+                      text[128];
   u_char              message[16];
   uid_t               uid;
   time_t              secs, last_debug = 0, last_export = 0;
@@ -167,12 +172,8 @@ int main(int argc,char *argv[]) {
 
   udp_server = (char *) default_server;
   wifi_name  = (char *) dummy;
-#if BLUEZ_SNIFFER
-  ble_name   = (char *) device_bluez;
-#endif
-#if NRF_SNIFFER
-  ble_name   = (char *) device_nrf;
-#endif
+  bluez_name = (char *) device_bluez;
+  nrf_name   = (char *) device_nrf;
 
 #if DEBUG_FILE
   debug_file = fopen(debug_filename,"w");
@@ -199,14 +200,20 @@ int main(int argc,char *argv[]) {
 
       switch (arg[1]) {
 
-      case 'b': /* BLE device */
+      case 'b': /* Bluez device */
         if (++i < argc) {
-          ble_name = argv[i];
+          bluez_name = argv[i];
         }
         break;
 
       case 'd': /* Curses display */
         enable_display = 1;
+        break;
+
+      case 'f': /* nRF sniffer device */
+        if (++i < argc) {
+          nrf_name = argv[i];
+        }
         break;
 
       case 'k': /* key */
@@ -394,11 +401,11 @@ int main(int argc,char *argv[]) {
 #endif
   
 #if BLUEZ_SNIFFER
-  ble_sniffer = start_bluez_sniffer(ble_name);
+  ble_sniffer = start_bluez_sniffer(bluez_name);
 #endif
 
 #if NRF_SNIFFER
-  nrf_child = start_nrf_sniffer(ble_name,&nrf_pipe);
+  nrf_child = start_nrf_sniffer(nrf_name,&nrf_pipe);
 #endif
   
   /* 
@@ -1215,7 +1222,7 @@ char *printable_text(uint8_t *data,int len) {
  *
  */
 
-#define UDP_BUFFER_SIZE 500
+#define UDP_BUFFER_SIZE 800 // Should really be 500, but we can get close to 500 with packed messages. 
 
 int write_json(char *json) {
 
