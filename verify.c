@@ -9,7 +9,7 @@
  *
  * Experimental.
  *
- * Copyright (c) 2022 Steve Jack
+ * Copyright (c) 2022-2023 Steve Jack
  *
  * MIT licence
  *
@@ -46,8 +46,9 @@ static const int          key_len = 16, iv_len = 12, iv_fixed_len = 6, tag_len =
 static uint8_t            key[20], iv[20], cipher_text[128];
 static uint64_t           cry_ctl_params[3];
 static FILE              *debug_file = NULL;
-// static gcry_ctx_t         cry_ctx;
 static gcry_cipher_hd_t   aes_cipher_handle;
+
+extern char               pass_s[], fail_s[];
 
 /*
  *
@@ -114,16 +115,16 @@ int init_crypto(uint8_t *_key,int _key_len,uint8_t *_iv,int _iv_len,
  *
  */
 
-void parse_auth(ODID_UAS_Data *UAS_data,ODID_MessagePack_encoded *encoded_data,struct UAV_RID *UAV) {
+int parse_auth(ODID_UAS_Data *UAS_data,ODID_MessagePack_encoded *encoded_data,struct UAV_RID *UAV) {
 
-  int                          i, j, k, *auth_length= NULL;
-  char                         text[64];
+  int                          pass = 0, i, j, k, *auth_length= NULL;
+  char                         text[64], *a;
   size_t                       res_len;
   uint8_t                     *sig = NULL, plain_text[128], cry_result[16], *u8, *auth_buffer = NULL;
   ODID_Message_encoded        *messages;
   ODID_Auth_encoded_page_zero *page_zero;
   gcry_error_t                 cry_err;
-  static int                   pass = 0;
+  static int                   call = 0;
 
   memset(cry_result,0,sizeof(cry_result));
 
@@ -193,10 +194,13 @@ void parse_auth(ODID_UAS_Data *UAS_data,ODID_MessagePack_encoded *encoded_data,s
     cry_err = gcry_cipher_final(aes_cipher_handle);
     cry_err = gcry_cipher_gettag(aes_cipher_handle,cry_result,res_len);
 
-    sprintf(text,", \"Japanese ID check\" : \"%s\"",(memcmp(sig,cry_result,tag_len) == 0) ? "Pass": "Fail");
+    pass = (memcmp(sig,cry_result,tag_len) == 0) ? 1: 0;
+    a    = (pass) ? pass_s: fail_s;
+
+    sprintf(text,", \"Japanese ID check\" : \"%s\"",a);
     write_json(text);
     
-    if (++pass == 1) {
+    if (++call == 1) {
     
       dump("key",key,16);
       dump("iv",iv,12);
@@ -215,7 +219,7 @@ void parse_auth(ODID_UAS_Data *UAS_data,ODID_MessagePack_encoded *encoded_data,s
     }
   }
   
-  return;
+  return pass;
 }
 
 /*

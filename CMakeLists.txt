@@ -1,12 +1,12 @@
 #
-# Created for completeness, but don't bother with it.
-# Just edit rid_capture.h file and use the Makefile.
+# Created for completeness, but don't bother with it,
+# just edit rid_capture.h file and use the Makefile.
 #
 
 cmake_minimum_required(VERSION 3.16)
 
 project(rid_capture)
-set(VERSION 0.95)
+set(VERSION 0.96)
 
 #
 # Use the bluez library.
@@ -32,7 +32,7 @@ configure_file(rid_capture.h.in rid_capture.h)
 set(cmake_c_flags "-Wall -Wno-parentheses -Wno-deprecated-declarations")
 #
 
-set(rid_capture_source rid_capture.c)
+set(rid_capture_source rid_capture.c display.c)
 set(base_libraries m c)
 set(rcap_libraries ${base_libraries})
 

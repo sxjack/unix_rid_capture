@@ -27,9 +27,6 @@
  *
  * To Do
  *
- * For some reason it doesn't like running both bluez and the external bluetooth 
- * scanners at the same time.
- *
  * Sort out the hangs that can occur if there is no data being received.
  *
  * Fully setup the WiFi device.
@@ -65,19 +62,15 @@
 #include <pcap/pcap.h>
 #endif
 
+#define BUFFER_SIZE  2048
+#define MAX_KEY_LEN    16
+
 #if USE_CURSES
 #include <curses.h>
-#define MAC_COL          0
-#define OP_COL          18
-#define LAT_COL         38
-#define LONG_COL        50
-#define ALT_COL         62
-#define TS_L_COL        70
-#define TS_S_COL        76
-#endif
 
-#define BUFFER_SIZE   2048
-#define MAX_KEY_LEN     16
+extern const int          MAC_COL, OP_COL, LAT_COL, LONG_COL, ALT_COL, TS_L_COL, TS_S_COL;
+extern WINDOW            *window;
+#endif
 
 unsigned char             key[MAX_KEY_LEN + 2], iv[MAX_KEY_LEN + 2];
 uid_t                     nobody  = 0;
@@ -97,6 +90,7 @@ static const char         default_key[]    = "0123456789abcdef",
                           device_pi[]      = "wlan1",
                           device_i686[]    = "wlp5s0b1",
                           dummy[]          = "";
+const char                pass_s[] = "Pass", fail_s[] = "Fail"; 
 static volatile uint32_t  rx_packets = 0, odid_packets = 0;
 static struct UAV_RID     RID_data[MAX_UAVS];
 static struct sockaddr_in server;
@@ -112,16 +106,13 @@ static const char         device_nrf[] = "/dev/ttyACM0";
 #if NRF_SNIFFER
 static int                nrf_pipe = -1;
 #endif
-#if USE_CURSES
-static int                nrows = 20, ncols = 80;
-WINDOW                   *window = NULL;
-#endif
 
 #if ENABLE_PCAP
 void list_devices(char *);
 void packet_handler(u_char *,const struct pcap_pkthdr *,const u_char *);
 #endif
 
+static void print_help(void);
 static void signal_handler(int);
 
 /*
@@ -200,6 +191,11 @@ int main(int argc,char *argv[]) {
 
       switch (arg[1]) {
 
+      case 'h':
+        print_help();
+        exit(0);
+        break;
+
       case 'b': /* Bluez device */
         if (++i < argc) {
           bluez_name = argv[i];
@@ -228,18 +224,18 @@ int main(int argc,char *argv[]) {
         }
         break;
 
+      case 's': /* UDP server */
+        if (++i < argc) {
+          udp_server = argv[i];
+        }
+        break;
+
       case 'p':
         if (++i < argc) {
           if ((j = atoi(argv[i])) > 1023) {
             port = j;
           }
         }
-
-      case 's': /* UDP server */
-        if (++i < argc) {
-          udp_server = argv[i];
-        }
-        break;
 
       case 'u': /* UDP output. */
         enable_udp = 1;
@@ -430,24 +426,10 @@ int main(int argc,char *argv[]) {
   }
 #endif
 
-#if USE_CURSES
   if (enable_display) {
-
-    if (window = initscr()) {
-      getmaxyx(window,nrows,ncols);
-      clear();
-      curs_set(0);
-      mvaddstr( 0,OP_COL   + 1,"Operator");
-      mvaddstr( 0,LAT_COL  + 1,"Lat.");
-      mvaddstr( 0,LONG_COL + 1,"Long.");
-      mvaddstr( 0,ALT_COL  + 1, "Alt.");
-      mvaddstr( 0,TS_L_COL + 2, "Timestamps");
-      mvaddstr(17,0,"^C to end program");
-      refresh();
-    }
+    display_init();
   }
-#endif
-  
+
   sprintf(text,"{ \"setup_time_ms\" : %.0f }\n",setup_ms);
   write_json(text);
 
@@ -546,7 +528,6 @@ int main(int argc,char *argv[]) {
 
 #if USE_CURSES
   if (window) {
-
     endwin();
   }
 #endif
@@ -824,7 +805,7 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
 
 void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
 
-  int                       i, j, RID_index, page;
+  int                       i, j, RID_index, page, authenticated;
   char                      json[128];
   uint8_t                   counter, index;
   ODID_UAS_Data             UAS_data;
@@ -832,8 +813,9 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
 #if USE_CURSES
   char                      text[64];
 #endif
-  
-  i = 0;
+
+  i             = 0;
+  authenticated = 0;
 
   /* */
 
@@ -926,13 +908,7 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
     write_json(json);
 
     memcpy(&RID_data[RID_index].odid_data.OperatorID,&UAS_data.OperatorID,sizeof(ODID_OperatorID_data));
-#if USE_CURSES
-    if (window) {
-      sprintf(text,"%-20s",UAS_data.OperatorID.OperatorId);
-      mvaddstr(RID_index + 1,OP_COL,text);
-      refresh();
-    }
-#endif
+    display_identifier(RID_index + 1,UAS_data.OperatorID.OperatorId);
   }
 
   for (j = 0; j < ODID_BASIC_ID_MAX_MESSAGES; ++j) {
@@ -958,6 +934,7 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
       case ODID_IDTYPE_CAA_REGISTRATION_ID:
         sprintf(json,", \"caa registration\" : \"%s\"",UAS_data.BasicID[j].UASID);
         write_json(json);
+        display_identifier(RID_index + 1,UAS_data.BasicID[j].UASID);
         break;
         
       case ODID_IDTYPE_NONE:
@@ -988,13 +965,15 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
 
 #if USE_CURSES
     if (window) {
+      int ts = (int) UAS_data.Location.TimeStamp;
+
       sprintf(text,"%11.6f ",UAS_data.Location.Latitude);
       mvaddstr(RID_index + 1,LAT_COL,text);
       sprintf(text,"%11.6f ",UAS_data.Location.Longitude);
       mvaddstr(RID_index + 1,LONG_COL,text);
       sprintf(text,"%5d ",(int) UAS_data.Location.AltitudeGeo);
       mvaddstr(RID_index + 1,ALT_COL,text);
-      sprintf(text,"%4d ",(int) UAS_data.Location.TimeStamp);
+      sprintf(text,"%02d:%02d ",ts / 60,ts % 60);
       mvaddstr(RID_index + 1,TS_L_COL,text);
       refresh();
     }
@@ -1012,13 +991,7 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
 
     memcpy(&RID_data[RID_index].odid_data.System,&UAS_data.System,sizeof(ODID_System_data));
 
-#if USE_CURSES
-    if (window) {
-      sprintf(text,"%10u ",(int) UAS_data.System.Timestamp);
-      mvaddstr(RID_index + 1,TS_S_COL,text);
-      refresh();
-    }
-#endif
+    display_timestamp(RID_index + 1,(time_t) UAS_data.System.Timestamp);
   }
 
   if (UAS_data.SelfIDValid) {
@@ -1035,6 +1008,8 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
         sprintf(json,", \"unix time (alt)\" : %lu",
                ((unsigned long int) UAS_data.Auth[page].Timestamp) + ID_OD_AUTH_DATUM);
         write_json(json);
+
+        display_timestamp(RID_index + 1,(time_t) UAS_data.Auth[page].Timestamp);
       }
 
       sprintf(json,", \"auth page %d\" : { \"text\" : \"%s\"",page,
@@ -1060,9 +1035,8 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
   }
 
 #if VERIFY
-
-  parse_auth(&UAS_data,encoded_data,&RID_data[RID_index]);
-
+  authenticated = parse_auth(&UAS_data,encoded_data,&RID_data[RID_index]);
+  display_note(RID_index + 1,(authenticated)? pass_s: "    "); 
 #endif
 
   write_json(" }\n");
@@ -1218,6 +1192,48 @@ char *printable_text(uint8_t *data,int len) {
   return text;
 }
 
+
+/*
+ *
+ */
+
+void print_help() {
+
+  int          i;
+  static const char *help_text[] =
+    {"Options",
+     "",
+#if BLUEZ_SNIFFER
+     "-b <bluez device>",
+#endif
+#if USE_CURSES
+     "-d, basic text display",
+#endif
+#if NRF_SNIFFER
+     "-f <tty>, the tty that an nRF52 sniffer is in",
+#endif
+     "-k <crypto key>",
+     "-n <crypto initial vector>",
+     "-p <UDP port>",
+     "-s <UDP server>",
+     "-u, enables UDP output",
+#if ENABLE_PCAP
+     "-w <WiFi device>",
+#endif
+     "-x, do not try to put the WiFi device into monitor",
+     "",
+     NULL },
+                     crlf[] = "\r\n";
+
+  for (i = 0; (i < 24)&&(help_text[i]); ++i) {
+
+    fputs(help_text[i],stderr);
+    fputs(crlf,stderr);
+  }
+
+  return;
+}
+
 /*
  *
  */
@@ -1281,3 +1297,8 @@ int write_json(char *json) {
 /*
  *
  */
+
+/*
+ *
+ */
+

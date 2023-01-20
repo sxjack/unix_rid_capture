@@ -7,8 +7,8 @@ CFLAGS = -Wall -Wno-parentheses -Wno-deprecated-declarations
 # LIBS = -lncurses -lpcap -lgcrypt -lbluetooth -lm -lc
 LIBS = -lpcap -lbluetooth -lm -lc
 #
-# OBJ = rid_capture.o france.o verify.o nrf_sniffer.o bluez_sniffer.o asterix.o export.o opendroneid.o 
-OBJ = rid_capture.o france.o bluez_sniffer.o export.o opendroneid.o 
+# OBJ = rid_capture.o display.o france.o verify.o nrf_sniffer.o bluez_sniffer.o asterix.o export.o opendroneid.o 
+OBJ = rid_capture.o display.o france.o bluez_sniffer.o export.o opendroneid.o 
 
 all: 	rid_capture
 

@@ -13,7 +13,7 @@
 
 #include "opendroneid.h"
 
-#define VERSION        0.95
+#define VERSION        0.96
 
 /* BLE, choose one. */
 #define BLUEZ_SNIFFER  1 /* Linux standard Bluetooth stack. */
@@ -52,6 +52,11 @@ void  dump(char *,uint8_t *,int);
 char *printable_text(uint8_t *,int);
 int   write_json(char *);
 
+void  display_init(void);
+void  display_timestamp(int,time_t);
+void  display_identifier(int,const char *);
+void  display_note(int,const char *);
+
 pid_t start_nrf_sniffer(const char *,int *);
 void  parse_nrf_sniffer(uint8_t *,int);
 void  stop_nrf_sniffer(void);
@@ -63,7 +68,7 @@ void  stop_bluez_sniffer(void);
 void  parse_id_france(uint8_t *,uint8_t *,struct UAV_RID *);
 
 int   init_crypto(uint8_t *,int,uint8_t *,int,FILE *);
-void  parse_auth(ODID_UAS_Data *,ODID_MessagePack_encoded *,struct UAV_RID *);
+int   parse_auth(ODID_UAS_Data *,ODID_MessagePack_encoded *,struct UAV_RID *);
 void  close_crypto(void);
 
 int   fa_export(time_t,struct UAV_RID *);
