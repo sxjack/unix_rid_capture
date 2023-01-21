@@ -16,6 +16,8 @@
  *
  * My nRF Beacon is running version 4.1.1 of nRF's nRF52840 dongle sniffer firmware.
  *
+ * Be aware that the sniffer records when we don't have it open.
+ *
  * The specification has a board ID at the start of the packet, but it doesn't seem to 
  * be there?
  * Need to investigate why it only works if we send single bytes down the pipe.
@@ -253,15 +255,15 @@ pid_t start_nrf_sniffer(const char *device, int *_pipe) {
   pipe_out = pipefd[0];
   pipe_in  = pipefd[1];
 
-	flags    = fcntl(pipe_out,F_GETFD);
-	flags   |= O_NONBLOCK;
-	
+  flags    = fcntl(pipe_out,F_GETFD);
+  flags   |= O_NONBLOCK;
+  
   if ((status = fcntl(pipe_out,F_SETFD,flags)) < 0) {
 
     fprintf(stderr,"%s(): fcntl() returned %d, %s\n",
             __func__,status,strerror(status));
-	}	
-	
+  }  
+  
   if ((child = fork()) == 0) {
 
     signal(SIGINT,child_signal_handler);
@@ -448,9 +450,14 @@ static int sniffer_encode_byte(uint8_t *buffer,int index,uint8_t byte) {
 
 int decode_sniffer_packet(uint8_t *message,int msg_len) {
 
-  int      i, offset1, offset2 = 0, crc_ok = 0;
-  uint8_t  packet_id, version, *adv_data, *payload = NULL, mac[6];
-  uint16_t payload_len, counter;
+  int                   i, j, k, l, t, offset1, offset2 = 0, crc_ok = 0;
+  uint8_t               packet_id, version, *adv_data, *payload = NULL, mac[6];
+  uint16_t              payload_len, counter, data_len, uuid;
+#if ! STANDALONE
+  char                  text[32];
+  union {_Float16 f16;
+         uint16_t u16;} batt_volts;
+#endif
 
   if (msg_len < 6) {
     return 0;
@@ -461,11 +468,13 @@ int decode_sniffer_packet(uint8_t *message,int msg_len) {
   counter     =  message[3] | (message[4] << 8);
   packet_id   =  message[offset1 = 5];
 
-#if 0
-  fprintf(stderr,"%s(%08x,%d) v %d, id %02x\n",__func__,
-          (unsigned int) message,msg_len,version,packet_id);
+  payload     = &message[offset1 + 1];
+
+#if STANDALONE
+  fprintf(stderr,"%3d %3d %d %6d %02x ",
+          msg_len,payload_len,version,counter,packet_id);
 #endif
-  
+
   if (version == 3) {
 
     switch (packet_id) {
@@ -476,22 +485,19 @@ int decode_sniffer_packet(uint8_t *message,int msg_len) {
       if ((payload_len > 22)&&
           (payload_len < (BLE_BUFFER_SIZE - 10))) {
  
-        payload  = &message[offset1 + 1];  
         offset2  = payload[0];
         crc_ok   = payload[1] & 0x01;
 
-        adv_data = &payload[offset2 + 13];
+        adv_data = &payload[j = offset2 + 13];
+        data_len = payload_len - j;
 
         for (i = 0; i < 6; ++i) {
-
           mac[i] = payload[offset2 + 12 - i];
         }
-    
 #if STANDALONE
-        fprintf(stderr,"%2d %3d %d %6d %02x %d |",
-                msg_len,payload_len,version,counter,packet_id,crc_ok);
+        fprintf(stderr,"%d |",crc_ok);
 
-        for (i = 0; (i < payload_len)&&(i < 44); ++i) {
+        for (i = 0; (i < j); ++i) {
 
           if ((i == offset2)||(i == (offset2 + 13))) {
             fputs(" |",stderr);
@@ -499,17 +505,50 @@ int decode_sniffer_packet(uint8_t *message,int msg_len) {
 
           fprintf(stderr," %02x",payload[i]);
         }
-
-        fprintf(stderr,"\n");
-#else
-        if ((adv_data[1] == 0x16)&&
-            (adv_data[2] == 0xfa)&&
-            (adv_data[3] == 0xff)&&
-            (crc_ok)) {
-
-          parse_odid(mac,&adv_data[5],payload_len - offset2 - 17,-payload[3]);
-        }
 #endif
+
+        for (j = 0, k = 0, l = 1; (k < 6)&&(j < data_len)&&(l); ++k) {
+
+          l    = adv_data[j];
+          t    = adv_data[j + 1];
+          uuid = (((uint16_t) adv_data[j + 3]) << 8) | adv_data[j + 2];
+#if STANDALONE
+          fprintf(stderr," |");
+
+          for (i = 0; (i <= l)&&(i < 8); ++i) {
+            fprintf(stderr," %02x",adv_data[j + i]);
+          }
+
+          if (i < l) {
+            fputs(" ...",stderr);
+          }
+#else
+          switch (t) {
+
+          case 0x16:
+            if (crc_ok) {
+              switch (uuid) {
+
+              case 0xfffa:
+                parse_odid(mac,&adv_data[j + 5],l - 5,-payload[3]);
+                break;
+
+              case 0x2bf0:
+                batt_volts.u16 = adv_data[j + 6] | (adv_data[j + 7] << 8);
+                sprintf(text,"%4.1f",(float) batt_volts.f16);
+                display_note(-1,text);
+                break;
+              }
+            }
+            break;
+
+          case 0x01: // flags
+          case 0x03: // uuids
+            break;
+          }
+#endif
+          j += l + 1;
+        }
       }
       break;
 
@@ -519,9 +558,27 @@ int decode_sniffer_packet(uint8_t *message,int msg_len) {
     default:
       break;
     }
+#if STANDALONE
+  } else {
+
+    fputs(" |",stderr);
+    
+    for (i = 0; i < 16; ++i) {
+
+      if (i == (offset1 + 1)) {
+        fputs(" |",stderr);
+      }
+
+      fprintf(stderr," %02x",message[i]);
+    }
+#endif
   }
 
-  return 0;
+#if STANDALONE
+ fprintf(stderr,"\n");
+#endif
+
+ return 0;
 }
 
 /*
