@@ -1,6 +1,4 @@
 #
-# Created for completeness, but don't bother with it,
-# just edit rid_capture.h file and use the Makefile.
 #
 
 cmake_minimum_required(VERSION 3.16)
@@ -29,7 +27,7 @@ set(use_curses 0)
 #
 configure_file(rid_capture.h.in rid_capture.h)
 
-set(cmake_c_flags "-Wall -Wno-parentheses -Wno-deprecated-declarations")
+set(cmake_c_flags "-Wall -Wno-parentheses -Wno-deprecated-declarations -mfp16-format=ieee")
 #
 
 set(rid_capture_source rid_capture.c display.c)

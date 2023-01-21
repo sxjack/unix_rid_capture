@@ -32,7 +32,7 @@ You need a WiFi card/dongle that can be put into monitor mode. If you are using 
 
 ### Compile rid_capture
 
-Check that the options at the top of `rid_capture.h` match what you want, check that any libraries that you need are installed (there is a script that will install the required libraries on Debian systems) and type make. It may make things easier later on if you edit the default device name near the top of `rid_capture.c` to match your installation.
+Check that the options in `CMakeLists.txt` match what you want, check that any libraries that you need are installed (there is a script that will install the required libraries on Debian systems) and type `cmake .` followed by `make`. It may make things easier later on if you edit the default device name near the top of `rid_capture.c` to match your installation.
 
 ### Running rid_capture
 
