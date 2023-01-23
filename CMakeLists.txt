@@ -1,5 +1,6 @@
 #
 #
+#
 
 cmake_minimum_required(VERSION 3.16)
 
@@ -25,9 +26,12 @@ set(verify 0)
 set(use_curses 0)
 
 #
+
 configure_file(rid_capture.h.in rid_capture.h)
 
-set(cmake_c_flags "-Wall -Wno-parentheses -Wno-deprecated-declarations -mfp16-format=ieee")
+set(CMAKE_C_FLAGS   "-Wall -Wno-parentheses -Wno-deprecated-declarations -mfp16-format=ieee")
+set(CMAKE_CXX_FLAGS "-Wall -Wno-parentheses -Wno-deprecated-declarations -mfp16-format=ieee")
+
 #
 
 set(rid_capture_source rid_capture.c display.c)
