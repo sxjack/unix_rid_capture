@@ -9,9 +9,7 @@
  *
  * Options
  *
- * -u Send the output to localhost UDP port 32001.
- * -w <WiFi device>
- * -x WiFi is already in monitor mode.
+ * See the print_help() function.
  *
  * Notes
  *
@@ -23,6 +21,9 @@
  *
  * Pi
  * RTL8812AU driver 88XXAU, trying to set monitor mode via libpcap causes an error.
+ *
+ * Keep an eye on the main loop time. It may require tuning if you are using the 
+ * display or exporting.
  *
  *
  * To Do
@@ -65,13 +66,6 @@
 #define BUFFER_SIZE  2048
 #define MAX_KEY_LEN    16
 
-#if USE_CURSES
-#include <curses.h>
-
-extern const int          MAC_COL, OP_COL, LAT_COL, LONG_COL, ALT_COL, TS_L_COL, TS_S_COL;
-extern WINDOW            *window;
-#endif
-
 unsigned char             key[MAX_KEY_LEN + 2], iv[MAX_KEY_LEN + 2];
 uid_t                     nobody  = 0;
 gid_t                     nogroup = 0;
@@ -113,6 +107,7 @@ void packet_handler(u_char *,const struct pcap_pkthdr *,const u_char *);
 #endif
 
 static void print_help(void);
+static void print_version(void);
 static void signal_handler(int);
 
 /*
@@ -125,6 +120,7 @@ int main(int argc,char *argv[]) {
                       export_index = 0;
   char               *arg, *wifi_name, *nrf_name, *bluez_name, *udp_server,
                       text[128];
+  uint32_t            packets_1s, last_odid_packets = 0;
   u_char              message[16];
   uid_t               uid;
   time_t              secs, last_debug = 0, last_export = 0;
@@ -186,9 +182,18 @@ int main(int argc,char *argv[]) {
   for (i = 1; i < argc; ++i) {
 
     arg = argv[i];
+
+    if (strcmp(arg,"--help") == 0) {
+      print_help();
+      exit(0);
+    }
+  
+    if (strcmp(arg,"--version") == 0) {
+      print_version();
+      exit(0);
+    }
   
     if (*arg == '-') {
-
       switch (arg[1]) {
 
       case 'h':
@@ -204,6 +209,7 @@ int main(int argc,char *argv[]) {
 
       case 'd': /* Curses display */
         enable_display = 1;
+        enable_udp     = 1;
         break;
 
       case 'f': /* nRF sniffer device */
@@ -236,9 +242,15 @@ int main(int argc,char *argv[]) {
             port = j;
           }
         }
+      // No break.
 
       case 'u': /* UDP output. */
         enable_udp = 1;
+        break;
+
+      case 'v':
+        print_version();
+        exit(0);
         break;
 
       case 'w': /* WiFi device */
@@ -318,7 +330,6 @@ int main(int argc,char *argv[]) {
 #if ENABLE_PCAP
 
   if (!(session = pcap_create(wifi_name,errbuf))) {
-
     fprintf(stderr,"pcap_open_live(): %s\n",errbuf);
     list_devices(errbuf);
     exit(1);
@@ -332,7 +343,6 @@ int main(int argc,char *argv[]) {
   int status;
 
   if ((status = pcap_can_set_rfmon(session)) != 0) {
-
     fprintf(stderr,"pcap_can_set_rfmon(): cannot set rfmon (%d), aborting\n",status);
     pcap_close(session);
     exit(1);
@@ -340,10 +350,8 @@ int main(int argc,char *argv[]) {
 
 #endif
 
-  if (set_monitor) {
-  
+  if (set_monitor) {  
     if (pcap_set_rfmon(session,1) != 0) {
-
       fprintf(stderr,"pcap_set_rfmon():  %s\n",pcap_geterr(session));
     }
   }
@@ -353,14 +361,12 @@ int main(int argc,char *argv[]) {
   bpf_u_int32 netmask = 0;
 
   if (pcap_lookupnet(wifi_name,&network,&netmask,errbuf) < 0) {
-
     fprintf(stderr,"pcap_lookupnet(%s): %s\n",wifi_name,errbuf);
   }
 
 #endif
 
   if (i = pcap_activate(session)) {
-
     fprintf(stderr,"\npcap_activate():  %s, %s\n",
             pcap_geterr(session),pcap_strerror(i));
     fputs("This error may mean that you don\'t have permission to access your wifi hardware or that it is not capable of being put into monitor mode.\n",stderr);
@@ -379,18 +385,15 @@ int main(int argc,char *argv[]) {
   }
 
   if ((header_type = pcap_datalink(session)) != DLT_IEEE802_11_RADIO) {
-
     fprintf(stderr,"pcap_datalink(): Not tested on this header type. ^C now to abort. : %d\n",
             header_type);
   }
   
   if (pcap_compile(session,&filter,filter_text,0,network)) {
-
     fprintf(stderr,"pcap_compile(): \"%s\" : %s\n",filter_text,pcap_geterr(session));
   }
 
   if (pcap_setfilter(session,&filter)) {
-
     fprintf(stderr,"pcap_setfilter():  %s\n",pcap_geterr(session));
   }
 
@@ -462,7 +465,7 @@ int main(int argc,char *argv[]) {
 
 #if NRF_SNIFFER
     if (nrf_child > 0) {
-      for (j = 0; (j < 4)&&(!end_program); ++j) {
+      for (j = 0; (j < 16)&&(!end_program); ++j) {
 
         if ((bytes = read(nrf_pipe,nrf_buffer,16)) < 1) {
           break;
@@ -492,6 +495,11 @@ int main(int argc,char *argv[]) {
 #endif
 
     if ((secs - last_export) > 1) {
+
+      packets_1s        = odid_packets - last_odid_packets;
+      last_odid_packets = odid_packets;
+
+      display_loop_diag(loop_us,packets_1s);
 
       last_export = secs;
 
@@ -526,11 +534,7 @@ int main(int argc,char *argv[]) {
   /* 
    */
 
-#if USE_CURSES
-  if (window) {
-    endwin();
-  }
-#endif
+  display_end();
 
 #if BLUEZ_SNIFFER
   stop_bluez_sniffer();
@@ -719,7 +723,7 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
           (val[1] == 0x0b)&&
           (val[2] == 0xbc)) {
 
-        parse_odid(mac,&payload[offset + 6],length - offset - 6,0);
+        parse_odid(mac,&payload[offset + 6],length - offset - 6,0,"pcap beacon",NULL);
  
       } else if ((typ    == 0xdd)&&
                  (val[0] == oui_alliance[0])&& // WiFi Alliance
@@ -789,7 +793,7 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
 
         offset += 19;
       
-        parse_odid(mac,&payload[offset],length - offset,0);
+        parse_odid(mac,&payload[offset],length - offset,0,"pcap NAN",NULL);
       }
     }
   }
@@ -803,16 +807,13 @@ void packet_handler(u_char *args,const struct pcap_pkthdr *header,const u_char *
  *
  */
 
-void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
+void parse_odid(u_char *mac,u_char *payload,int length,int rssi,const char *note,const float *volts) {
 
   int                       i, j, RID_index, page, authenticated;
   char                      json[128];
   uint8_t                   counter, index;
   ODID_UAS_Data             UAS_data;
   ODID_MessagePack_encoded *encoded_data = (ODID_MessagePack_encoded *) &payload[1];
-#if USE_CURSES
-  char                      text[64];
-#endif
 
   i             = 0;
   authenticated = 0;
@@ -837,6 +838,14 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
   ++odid_packets;
   ++RID_data[RID_index].packets;
   RID_data[RID_index].rssi = rssi;
+
+  if (note) {
+    display_note(RID_index + 1,note);
+  }
+  
+  if (volts) {
+    display_voltage(RID_index + 1,*volts);
+  }
 
   memset(&UAS_data,0,sizeof(UAS_data));
 
@@ -922,12 +931,8 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
       case ODID_IDTYPE_SERIAL_NUMBER:
         sprintf(json,", \"uav id\" : \"%s\"",UAS_data.BasicID[j].UASID);
         write_json(json);
-#if USE_CURSES && 0
-        if (window) {
-          sprintf(text,"%-20s",UAS_data.BasicID[j].UASID);
-          mvaddstr(RID_index + 1,OP_COL,text);
-          refresh();
-        }
+#if 0
+        display_identifier(RID_index + 1,UAS_data.BasicID[j].UASID);
 #endif
         break;
         
@@ -963,21 +968,8 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
 
     memcpy(&RID_data[RID_index].odid_data.Location,&UAS_data.Location,sizeof(ODID_Location_data));
 
-#if USE_CURSES
-    if (window) {
-      int ts = (int) UAS_data.Location.TimeStamp;
-
-      sprintf(text,"%11.6f ",UAS_data.Location.Latitude);
-      mvaddstr(RID_index + 1,LAT_COL,text);
-      sprintf(text,"%11.6f ",UAS_data.Location.Longitude);
-      mvaddstr(RID_index + 1,LONG_COL,text);
-      sprintf(text,"%5d ",(int) UAS_data.Location.AltitudeGeo);
-      mvaddstr(RID_index + 1,ALT_COL,text);
-      sprintf(text,"%02d:%02d ",ts / 60,ts % 60);
-      mvaddstr(RID_index + 1,TS_L_COL,text);
-      refresh();
-    }
-#endif
+    display_uav_loc(RID_index + 1,UAS_data.Location.Latitude,UAS_data.Location.Longitude,
+                    (int) UAS_data.Location.AltitudeGeo,(int) UAS_data.Location.TimeStamp);    
   }
   
   if (UAS_data.SystemValid) {
@@ -1036,7 +1028,7 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi) {
 
 #if VERIFY
   authenticated = parse_auth(&UAS_data,encoded_data,&RID_data[RID_index]);
-  display_note(RID_index + 1,(authenticated)? pass_s: "    "); 
+  display_pass(RID_index + 1,(authenticated)? pass_s: "    "); 
 #endif
 
   write_json(" }\n");
@@ -1106,15 +1098,11 @@ int mac_index(uint8_t *mac,struct UAV_RID *RID_data) {
 
     uav = &RID_data[oldest];
 
-    sprintf(text,"%02x:%02x:%02x:%02x:%02x:%02x ",
+    sprintf(text,"%02x:%02x:%02x:%02x:%02x:%02x",
             mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
 
-#if USE_CURSES
-    if (window) {
-      mvaddstr(oldest + 1,MAC_COL,text);
-      refresh();
-    }
-#endif
+    display_mac(oldest + 1,mac);
+
     if (!enable_display) {
 
       fputs(text,stderr);
@@ -1192,6 +1180,17 @@ char *printable_text(uint8_t *data,int len) {
   return text;
 }
 
+
+/*
+ *
+ */
+
+void print_version() {
+
+  fprintf(stderr,"rid_capture version %s\r\n",VERSION);
+
+  return;
+}
 
 /*
  *

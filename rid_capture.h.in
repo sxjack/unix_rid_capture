@@ -2,7 +2,7 @@
  * 
  *
  *
- * Copyright (c) 2022 Steve Jack
+ * Copyright (c) 2022-2023 Steve Jack
  *
  * MIT licence
  *
@@ -13,7 +13,7 @@
 
 #include "opendroneid.h"
 
-#define VERSION        ${VERSION}
+#define VERSION        "${VERSION}"
 
 /* BLE, choose one. */
 #define BLUEZ_SNIFFER  ${bluez_sniffer} /* Linux standard Bluetooth stack. */
@@ -46,16 +46,13 @@ struct UAV_RID {u_char        mac[6], counter[16];
                 int           rssi;
 };
 
-void  parse_odid(u_char *,u_char *,int,int);
+void  parse_odid(u_char *,u_char *,int,int,const char *,const float *);
 int   mac_index(uint8_t *,struct UAV_RID *);
 void  dump(char *,uint8_t *,int);
 char *printable_text(uint8_t *,int);
 int   write_json(char *);
 
-void  display_init(void);
-void  display_timestamp(int,time_t);
-void  display_identifier(int,const char *);
-void  display_note(int,const char *);
+#include "display.h"
 
 pid_t start_nrf_sniffer(const char *,int *);
 void  parse_nrf_sniffer(uint8_t *,int);

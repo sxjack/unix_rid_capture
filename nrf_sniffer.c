@@ -5,7 +5,7 @@
  *
  * This file has code handle the interface with an NRF Sniffer.
  *
- * Copyright (c) 2022 Steve Jack
+ * Copyright (c) 2022-2023 Steve Jack
  *
  * MIT licence
  *
@@ -454,7 +454,9 @@ int decode_sniffer_packet(uint8_t *message,int msg_len) {
   uint8_t               packet_id, version, *adv_data, *payload = NULL, mac[6];
   uint16_t              payload_len, counter, data_len, uuid;
 #if ! STANDALONE
-  char                  text[32];
+  int                   odid_len = 0, rssi = 0;
+  float                 voltage = 0.0;
+  uint8_t              *odid_data = NULL;
   union {_Float16 f16;
          uint16_t u16;} batt_volts;
 #endif
@@ -530,13 +532,16 @@ int decode_sniffer_packet(uint8_t *message,int msg_len) {
               switch (uuid) {
 
               case 0xfffa:
-                parse_odid(mac,&adv_data[j + 5],l - 5,-payload[3]);
+                odid_data = &adv_data[j + 5];
+                odid_len  = l - 5;
+                rssi      = -payload[3];
+                // parse_odid(mac,odid_data,odid_len,rssi,"Sniffer",NULL);
                 break;
 
               case 0x2bf0:
                 batt_volts.u16 = adv_data[j + 6] | (adv_data[j + 7] << 8);
-                sprintf(text,"%4.1f",(float) batt_volts.f16);
-                display_note(-1,text);
+                voltage        = (float) batt_volts.f16;
+                // display_voltage(-1,voltage);
                 break;
               }
             }
@@ -575,7 +580,12 @@ int decode_sniffer_packet(uint8_t *message,int msg_len) {
   }
 
 #if STANDALONE
- fprintf(stderr,"\n");
+  fprintf(stderr,"\n");
+#else
+  if (odid_data) {
+    parse_odid(mac,odid_data,odid_len,rssi,"Sniffer",
+               (voltage)? &voltage: NULL);
+  }
 #endif
 
  return 0;

@@ -5,7 +5,7 @@
  *
  * This file has the code to interface with bluez.
  *
- * Copyright (c) 2022 Steve Jack
+ * Copyright (c) 2022-2023 Steve Jack
  *
  * MIT licence
  *
@@ -272,7 +272,7 @@ int parse_bluez_sniffer() {
             (advert->data[3] == 0xff)) {
 
           ++adverts;
-          parse_odid(mac,&advert->data[odid_offset],advert->length - odid_offset,0);
+          parse_odid(mac,&advert->data[odid_offset],advert->length - odid_offset,0,"BlueZ",NULL);
         }
 #endif
         offset += advert->length + 2;
