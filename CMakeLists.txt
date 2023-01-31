@@ -2,7 +2,7 @@
 #
 #
 
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.13)
 
 project(rid_capture)
 set(VERSION 0.97)
@@ -29,9 +29,13 @@ set(use_curses 0)
 
 configure_file(rid_capture.h.in rid_capture.h)
 
-set(CMAKE_C_FLAGS   "-Wall -Wno-parentheses -Wno-deprecated-declarations -mfp16-format=ieee")
-set(CMAKE_CXX_FLAGS "-Wall -Wno-parentheses -Wno-deprecated-declarations -mfp16-format=ieee")
+set(CMAKE_C_FLAGS   "-Wall -Wno-parentheses -Wno-deprecated-declarations")
+set(CMAKE_CXX_FLAGS "-Wall -Wno-parentheses -Wno-deprecated-declarations")
 
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
+  set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -mfp16-format=ieee")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfp16-format=ieee")
+endif()
 #
 
 set(rid_capture_source rid_capture.c display.c)
