@@ -63,8 +63,9 @@
 #include <pcap/pcap.h>
 #endif
 
-#define BUFFER_SIZE  2048
-#define MAX_KEY_LEN    16
+#define BUFFER_SIZE     2048
+#define MAX_KEY_LEN       16
+#define NRF_BUFFER_SIZE  128
 
 unsigned char             key[MAX_KEY_LEN + 2], iv[MAX_KEY_LEN + 2];
 uid_t                     nobody  = 0;
@@ -73,17 +74,19 @@ const mode_t              file_mode = 0666, dir_mode = 0777;
 
 static int                enable_display = 0, enable_udp = 0, json_socket = -1,
                           max_udp_length = 0;
+static char              *log_dir = NULL;
 static double             setup_ms = 0.0, loop_us = 0.0;
 static unsigned int       port = 32001;
 static volatile int       end_program  = 0;
 static FILE              *debug_file = NULL;
-static const char         default_key[]    = "0123456789abcdef",
-                          default_iv[]     = "nopqrs",
-                          default_server[] = "127.0.0.1",
-                          debug_filename[] = "debug.txt",
-                          device_pi[]      = "wlan1",
-                          device_i686[]    = "wlp5s0b1",
-                          dummy[]          = "";
+static const char         default_key[]     = "0123456789abcdef",
+                          default_iv[]      = "nopqrs",
+                          default_server[]  = "127.0.0.1",
+                          debug_filename[]  = "debug.txt",
+                          device_pi[]       = "wlan1",
+                          device_i686[]     = "wlp5s0b1",
+                          default_log_dir[] = "/tmp/rid_capture",
+                          dummy[]           = "";
 const char                pass_s[] = "Pass", fail_s[] = "Fail"; 
 static volatile uint32_t  rx_packets = 0, odid_packets = 0;
 static struct UAV_RID     RID_data[MAX_UAVS];
@@ -123,7 +126,7 @@ int main(int argc,char *argv[]) {
   uint32_t            packets_1s, last_odid_packets = 0;
   u_char              message[16];
   uid_t               uid;
-  time_t              secs, last_debug = 0, last_export = 0;
+  time_t              secs, last_debug = 0, last_export = 0, last_summary = 0;
   struct timespec     start, setup_done, loop_entry, last_loop;
 #if ENABLE_PCAP
   char                errbuf[PCAP_ERRBUF_SIZE];
@@ -134,8 +137,8 @@ int main(int argc,char *argv[]) {
   struct passwd      *user = NULL;
   struct utsname      sys_uname;
 #if NRF_SNIFFER
-  int                 bytes;
-  u_char              nrf_buffer[16];
+  int                 bytes, nrf_bytes = 0, nrf_reads = 0;
+  u_char              nrf_buffer[NRF_BUFFER_SIZE];
   pid_t               nrf_child;
 #endif
 
@@ -161,11 +164,8 @@ int main(int argc,char *argv[]) {
   wifi_name  = (char *) dummy;
   bluez_name = (char *) device_bluez;
   nrf_name   = (char *) device_nrf;
+  log_dir    = (char *) default_log_dir;
 
-#if DEBUG_FILE
-  debug_file = fopen(debug_filename,"w");
-#endif
-  
   uname(&sys_uname);
   
   if (!strncmp("i686",sys_uname.machine,4)) {
@@ -292,6 +292,17 @@ int main(int argc,char *argv[]) {
 
   signal(SIGINT,signal_handler);
 
+  /* Somewhere to put the debug and summary files. */
+
+  mkdir(log_dir,dir_mode);
+  chmod(log_dir,dir_mode);
+  chown(log_dir,nobody,nogroup);
+  
+#if DEBUG_FILE
+  sprintf(text,"%s/%s",log_dir,debug_filename);
+  debug_file = fopen(text,"w");
+#endif
+
   if (enable_udp) {
 
     status = 0;
@@ -411,7 +422,9 @@ int main(int argc,char *argv[]) {
    */
 
   time(&secs);
-  last_debug = secs;
+
+  last_summary =
+  last_debug   = secs;
 
   clock_gettime(CLOCK_REALTIME,&setup_done);
 
@@ -463,15 +476,23 @@ int main(int argc,char *argv[]) {
     }
 #endif
 
+    // The nRF sniffer can put out a lot of data hence the separate process.
+    // nrf_pipe is supposed to be non-blocking, but isn't...
 #if NRF_SNIFFER
     if (nrf_child > 0) {
-      for (j = 0; (j < 16)&&(!end_program); ++j) {
+      for (nrf_reads = 0, nrf_bytes = 0; (nrf_reads < 4)&&(!end_program);) {
 
-        if ((bytes = read(nrf_pipe,nrf_buffer,16)) < 1) {
-          break;
+        if ((bytes = read(nrf_pipe,nrf_buffer,sizeof(nrf_buffer))) > 0) {
+
+          nrf_bytes += bytes;
+          parse_nrf_sniffer(nrf_buffer,bytes);
         }
 
-        parse_nrf_sniffer(nrf_buffer,bytes);
+        ++nrf_reads;
+
+        if (bytes < sizeof(nrf_buffer)) {
+          break;
+        }
       }
     }
 #endif
@@ -483,7 +504,11 @@ int main(int argc,char *argv[]) {
       sprintf(text,"{ \"debug\" : \"rx packets %u (%u)\", \"loop_time_us\" : %.0f, \"max udp len\" : %d }\n",
               rx_packets,odid_packets,loop_us,max_udp_length);
       write_json(text);
-      
+#if NRF_SNIFFER
+      sprintf(text,"{ \"nrf_reads\" : %d, \"nrf_bytes\" : %d }\n",
+              nrf_reads,nrf_bytes);
+      write_json(text);
+#endif      
       last_debug = secs;
     }
 
@@ -493,6 +518,12 @@ int main(int argc,char *argv[]) {
       write(2,".",1);
     }
 #endif
+
+    if ((secs - last_summary) > 900) {
+
+      print_summary(log_dir,NULL,RID_data,MAX_UAVS);
+      last_summary = secs;
+    }
 
     if ((secs - last_export) > 1) {
 
@@ -562,39 +593,7 @@ int main(int argc,char *argv[]) {
     close(json_socket);
   }
 
-  if (RID_data[0].mac[0]) {
-
-#if ASTERIX
-    fprintf(stderr,"\n\n%-17s packets %-10s %-10s ","MAC","last rx","last retx");
-#else
-    fprintf(stderr,"\n\n%-17s packets %-10s ","MAC","last rx");
-#endif
-    fprintf(stderr,"%-20s %-10s %-10s\n","operator","latitude","longitude");
-
-    for (int i = 0; i < MAX_UAVS; ++i) {
-
-      if (RID_data[i].mac[0]) {
-
-        fprintf(stderr,"%02x:%02x:%02x:%02x:%02x:%02x %7u ",
-                RID_data[i].mac[0],RID_data[i].mac[1],RID_data[i].mac[2],
-                RID_data[i].mac[3],RID_data[i].mac[4],RID_data[i].mac[5],
-                RID_data[i].packets);
-#if ASTERIX
-        fprintf(stderr,"%10lu %10lu ",RID_data[i].last_rx,RID_data[i].last_retx);
-#else
-        fprintf(stderr,"%10lu ",RID_data[i].last_rx);
-#endif
-        fprintf(stderr,"%-20s %10.5f %10.5f ",
-                RID_data[i].odid_data.OperatorID.OperatorId,
-                RID_data[i].odid_data.Location.Latitude,
-                RID_data[i].odid_data.Location.Longitude);
-#if VERIFY
-        fputs(printable_text(RID_data[i].auth_buffer,RID_data[i].auth_length),stderr);
-#endif
-        fprintf(stderr,"\n");
-      }
-    }
-  }
+  print_summary(log_dir,stderr,RID_data,MAX_UAVS);
 
   if (debug_file) {
 
@@ -812,6 +811,7 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi,const char *note
   int                       i, j, RID_index, page, authenticated;
   char                      json[128];
   uint8_t                   counter, index;
+  double                    latitude, longitude, altitude;
   ODID_UAS_Data             UAS_data;
   ODID_MessagePack_encoded *encoded_data = (ODID_MessagePack_encoded *) &payload[1];
 
@@ -929,6 +929,7 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi,const char *note
       switch (UAS_data.BasicID[j].IDType) {
 
       case ODID_IDTYPE_SERIAL_NUMBER:
+        memcpy(&RID_data[RID_index].basic_serial,&UAS_data.BasicID[j],sizeof(ODID_BasicID_data));
         sprintf(json,", \"uav id\" : \"%s\"",UAS_data.BasicID[j].UASID);
         write_json(json);
 #if 0
@@ -937,6 +938,7 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi,const char *note
         break;
         
       case ODID_IDTYPE_CAA_REGISTRATION_ID:
+        memcpy(&RID_data[RID_index].basic_caa_reg,&UAS_data.BasicID[j],sizeof(ODID_BasicID_data));
         sprintf(json,", \"caa registration\" : \"%s\"",UAS_data.BasicID[j].UASID);
         write_json(json);
         display_identifier(RID_index + 1,UAS_data.BasicID[j].UASID);
@@ -951,8 +953,12 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi,const char *note
 
   if (UAS_data.LocationValid) {
 
+    latitude  = UAS_data.Location.Latitude;
+    longitude = UAS_data.Location.Longitude;
+    altitude  = UAS_data.Location.AltitudeGeo;
+
     sprintf(json,", \"uav latitude\" : %11.6f, \"uav longitude\" : %11.6f",
-           UAS_data.Location.Latitude,UAS_data.Location.Longitude);
+            latitude,longitude);
     write_json(json);
     sprintf(json,", \"uav altitude\" : %d, \"uav heading\" : %d",
            (int) UAS_data.Location.AltitudeGeo,(int) UAS_data.Location.Direction);
@@ -968,8 +974,35 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi,const char *note
 
     memcpy(&RID_data[RID_index].odid_data.Location,&UAS_data.Location,sizeof(ODID_Location_data));
 
-    display_uav_loc(RID_index + 1,UAS_data.Location.Latitude,UAS_data.Location.Longitude,
-                    (int) UAS_data.Location.AltitudeGeo,(int) UAS_data.Location.TimeStamp);    
+    display_uav_loc(RID_index + 1,latitude,longitude,
+                    (int) altitude,(int) UAS_data.Location.TimeStamp);
+
+    if ((latitude < RID_data[RID_index].min_lat)||(RID_data[RID_index].min_lat == 0.0)) {
+      RID_data[RID_index].min_lat = latitude;
+    }
+
+    if ((latitude > RID_data[RID_index].max_lat)||(RID_data[RID_index].max_lat == 0.0)) {
+      RID_data[RID_index].max_lat = latitude;
+    }
+
+    if ((longitude < RID_data[RID_index].min_long)||(RID_data[RID_index].min_long == 0.0)) {
+      RID_data[RID_index].min_long = longitude;
+    }
+
+    if ((longitude > RID_data[RID_index].max_long)||(RID_data[RID_index].max_long == 0.0)) {
+      RID_data[RID_index].max_long = longitude;
+    }
+
+    if (altitude > INV_ALT) {
+    
+      if ((altitude < RID_data[RID_index].min_alt)||(RID_data[RID_index].min_alt == 0.0)) {
+        RID_data[RID_index].min_alt = altitude;
+      }
+
+      if ((altitude > RID_data[RID_index].max_alt)||(RID_data[RID_index].max_alt == 0.0)) {
+        RID_data[RID_index].max_alt = altitude;
+      }
+    }
   }
   
   if (UAS_data.SystemValid) {
@@ -1297,6 +1330,7 @@ int write_json(char *json) {
  *
  */
 
+ 
 /*
  *
  */

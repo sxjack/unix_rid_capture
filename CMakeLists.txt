@@ -5,7 +5,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(rid_capture)
-set(VERSION 0.96)
+set(VERSION 0.97)
 
 #
 # Use the bluez library.
@@ -77,6 +77,7 @@ if(${enable_pcap})
 endif()
 
 set(rid_capture_source ${rid_capture_source} opendroneid.c)
+set(rid_capture_source ${rid_capture_source} summary.c m_per_deg.c)
 
 add_executable(rid_capture
   ${rid_capture_source})
@@ -90,4 +91,7 @@ add_executable(bluez_sniffer bluez_sniffer.c)
 target_link_libraries(bluez_sniffer bluetooth ${base_libraries})
 set_target_properties(bluez_sniffer PROPERTIES COMPILE_FLAGS "-DSTANDALONE=1")
 #
-
+add_executable(m_per_deg m_per_deg.c)
+target_link_libraries(m_per_deg m c)
+set_target_properties(m_per_deg PROPERTIES COMPILE_FLAGS "-DSTANDALONE=1")
+#

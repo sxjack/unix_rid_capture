@@ -35,15 +35,17 @@
 
 #define ID_OD_AUTH_DATUM  1546300800LU
 
-struct UAV_RID {u_char        mac[6], counter[16];
-                unsigned int  packets;
-                time_t        last_rx, last_retx;
-                ODID_UAS_Data odid_data;
+struct UAV_RID {u_char            mac[6], counter[16];
+                unsigned int      packets;
+                time_t            last_rx, last_retx;
+                ODID_UAS_Data     odid_data;
+                ODID_BasicID_data basic_serial, basic_caa_reg;
 #if VERIFY
-                int           auth_length;
-                uint8_t       auth_buffer[ODID_AUTH_MAX_PAGES * ODID_AUTH_PAGE_NONZERO_DATA_SIZE + 1];
+                int               auth_length;
+                uint8_t           auth_buffer[ODID_AUTH_MAX_PAGES * ODID_AUTH_PAGE_NONZERO_DATA_SIZE + 1];
 #endif
-                int           rssi;
+                int               rssi;
+                double            min_lat, max_lat, min_long, max_long, min_alt, max_alt;
 };
 
 void  parse_odid(u_char *,u_char *,int,int,const char *,const float *);
@@ -54,25 +56,36 @@ int   write_json(char *);
 
 #include "display.h"
 
+/* nrf_sniffer.c */
 pid_t start_nrf_sniffer(const char *,int *);
 void  parse_nrf_sniffer(uint8_t *,int);
 void  stop_nrf_sniffer(void);
 
+/* bluez_sniffer.c */
 int   start_bluez_sniffer(const char *);
 int   parse_bluez_sniffer(void);
 void  stop_bluez_sniffer(void);
 
+/* france.c */
 void  parse_id_france(uint8_t *,uint8_t *,struct UAV_RID *);
 
+/* verify.c */
 int   init_crypto(uint8_t *,int,uint8_t *,int,FILE *);
 int   parse_auth(ODID_UAS_Data *,ODID_MessagePack_encoded *,struct UAV_RID *);
 void  close_crypto(void);
 
+/* export.c */
 int   fa_export(time_t,struct UAV_RID *);
 
+/* asterix.c */
 void  asterix_init(void);
 void  asterix_transmit(struct UAV_RID *);
 void  asterix_end(void);
+
+/* summary.c */
+void  print_summary(char *,FILE *,struct UAV_RID *,int);
+
+void  calc_m_per_deg(double,double *,double *);
 
 /*
  *

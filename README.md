@@ -18,9 +18,8 @@ Probably won't receiver BT5 advertising.
 If anybody runs this in the vicinity of an "Arrêté du 27 décembre 2019" French ID, I would appreciate the debug.txt.
 
 ### Command Line Options
-  * `-w <WiFi device>`
-  * `-x` WiFi device is already in monitor mode.
-  * `-u` send the json output to UDP port 32001.
+
+`rid_capture -h` will show you the command line options.
 
 The UDP output can be read using netcat, `nc -lu 32001`.
 
@@ -42,7 +41,7 @@ Run rid_capture. If it suggests that you use the -x option do so. You can overri
 
 rid_capture defaults to writing json to stdout. Capture this json to a file, e.g. `./rid_capture -x > rid_capture.txt` and then feed the json to the rid2gpx.pl script (`./scripts/rid2gpx.pl < rid_capture.txt`). If this works you will end up with a gpx file that Google Earth will display.
 
-If nothing is transmitting WiFi RID, rid_capture will peridically put out debug reports saying how may WiFi packets it has seen. 
+rid_capture peridically outputs debug reports saying how may WiFi packets it has seen. 
 ```
 { "debug" : "rx packets 92 (0)" }
 ```
@@ -51,7 +50,8 @@ If the program is seeing WiFi RID, the output will look like -
 { "mac" : "ac:67:b2:09:50:d4", "operator" : "GBR-OP-ZZZZZZZZZZZZ", "uav id" : "SERIAL NUMBER", "uav latitude" :    0.000000, "uav longitude" :    0.000000, "uav altitude" : -1000, "uav heading" : 361, "uav speed" : 255, "seconds" : 0, "base latitude" :    0.000000, "base longitude" :    0.000000, "unix time" : 1546300800 }
 ```
 
+### Summary and Diagnostics
 
-
+rid_capture writes summary and diagnostic files to `/tmp/rid_capture`.
 
 
