@@ -32,10 +32,14 @@ configure_file(rid_capture.h.in rid_capture.h)
 set(CMAKE_C_FLAGS   "-Wall -Wno-parentheses -Wno-deprecated-declarations")
 set(CMAKE_CXX_FLAGS "-Wall -Wno-parentheses -Wno-deprecated-declarations")
 
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
+message(${CMAKE_SYSTEM_PROCESSOR})
+
+# if(${CMAKE_SYSTEM_PROCESSOR} STREQUAL armv71)
+if(0)
   set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -mfp16-format=ieee")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfp16-format=ieee")
 endif()
+
 #
 
 set(rid_capture_source rid_capture.c display.c)

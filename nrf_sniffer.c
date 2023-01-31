@@ -156,9 +156,12 @@ int main(int argc, char *argv[]) {
 
     while (!end_main) {
 
-      if (bytes = read(pipe_out,buffer,16)) {
-
+      if ((bytes = read(pipe_out,buffer,16)) > 0) {
         parse_nrf_sniffer(buffer,bytes);
+#if 0
+      } else {
+        fprintf(stderr,"%3d\n",bytes);
+#endif
       }
     }
 
@@ -190,7 +193,6 @@ pid_t start_nrf_sniffer(const char *device, int *_pipe) {
    * Open and setup the serial port to the nRF dongle/sniffer.
    * Serial I/O on unix is very old school.
    *
-   * NON_BLOCK ?
    */
 
   if ((sniffer = open(device,O_RDWR | O_NOCTTY)) < 0) {
@@ -255,10 +257,10 @@ pid_t start_nrf_sniffer(const char *device, int *_pipe) {
   pipe_out = pipefd[0];
   pipe_in  = pipefd[1];
 
-  flags    = fcntl(pipe_out,F_GETFD);
+  flags    = fcntl(pipe_out,F_GETFL);
   flags   |= O_NONBLOCK;
   
-  if ((status = fcntl(pipe_out,F_SETFD,flags)) < 0) {
+  if ((status = fcntl(pipe_out,F_SETFL,flags)) < 0) {
 
     fprintf(stderr,"%s(): fcntl() returned %d, %s\n",
             __func__,status,strerror(status));
@@ -457,7 +459,7 @@ int decode_sniffer_packet(uint8_t *message,int msg_len) {
   int                   odid_len = 0, rssi = 0;
   float                 voltage = 0.0;
   uint8_t              *odid_data = NULL;
-#if __arm__
+#if 0 && __arm__
   union {_Float16 f16;
          uint16_t u16;} batt_volts;
 #endif
@@ -540,7 +542,7 @@ int decode_sniffer_packet(uint8_t *message,int msg_len) {
                 break;
 
               case 0x2bf0:
-#if __arm__
+#if 0 && __arm__
                 batt_volts.u16 = adv_data[j + 6] | (adv_data[j + 7] << 8);
                 voltage        = (float) batt_volts.f16;
 #endif
