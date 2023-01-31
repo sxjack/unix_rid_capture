@@ -457,8 +457,10 @@ int decode_sniffer_packet(uint8_t *message,int msg_len) {
   int                   odid_len = 0, rssi = 0;
   float                 voltage = 0.0;
   uint8_t              *odid_data = NULL;
+#if __arm__
   union {_Float16 f16;
          uint16_t u16;} batt_volts;
+#endif
 #endif
 
   if (msg_len < 6) {
@@ -535,13 +537,13 @@ int decode_sniffer_packet(uint8_t *message,int msg_len) {
                 odid_data = &adv_data[j + 5];
                 odid_len  = l - 5;
                 rssi      = -payload[3];
-                // parse_odid(mac,odid_data,odid_len,rssi,"Sniffer",NULL);
                 break;
 
               case 0x2bf0:
+#if __arm__
                 batt_volts.u16 = adv_data[j + 6] | (adv_data[j + 7] << 8);
                 voltage        = (float) batt_volts.f16;
-                // display_voltage(-1,voltage);
+#endif
                 break;
               }
             }
