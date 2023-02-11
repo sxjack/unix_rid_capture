@@ -20,12 +20,13 @@ my($datagram,$flags);
 my($line,$text);
 my($mac,$operator,$id,$latitude,$longitude,$alt_msl,$heading,$speed,$registration);
 my($hsecs,$unix_time,$m,$s);
+my(@auth) = ('','');
 my($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst);
-my($loop_time,$debug);
+my($loop_time,$debug,$max_udp);
 my($row,$col) = (0,0);
 my($next_row,$time_row,$debug_row) = (1,11,12);
 my($loc_col,$ts_col) = (40,80);
-my($a,$op,$t,$t2,$reg);
+my($a,$b,$op,$t,$t2,$reg,@values);
 my(%mac2row,%mac2time,%mac2op,%mac2id,%mac2reg);
 
 # UDP server
@@ -89,6 +90,8 @@ for (;!$end_program;) {
             $heading   = $$a{'uav heading'};
             $speed     = $$a{'uav speed'};
             $hsecs     = $$a{'seconds'};
+            $max_udp   = $$a{'max udp len'};
+            $auth[0]   = $$a{'auth page 0'};
 
             if ($t) {
                 $mac2time{$mac} = $t;
@@ -138,8 +141,13 @@ for (;!$end_program;) {
 
             if ($latitude) { # We have a Location message.
 
-                $m = int($hsecs / 60);
-                $s = int($hsecs % 60);
+                if ($hsecs) {
+                    $m = int($hsecs / 60);
+                    $s = int($hsecs % 60);
+                } else {
+                    $m = 0;
+                    $s = 0;
+                }
 
                 $text = sprintf("%-12.6f %-12.6f %4d   %3d   ",
                                 $latitude,$longitude,$alt_msl,$heading);
@@ -149,10 +157,15 @@ for (;!$end_program;) {
                 addstr($row,$ts_col,$text);
                 refresh();
             }
+
+            if ($b = $auth[0]) {
+                if ($text = $$b{'text'}) {
+                    addstr($debug_row,$loc_col,"Auth 0: \'$text\'");
+                }
+            }
         }
 
         if ($loop_time = $$a{'loop_time_us'}) {
-
             $text = sprintf("%7d us",$loop_time);
             # print "$row loop $loop_time us\n";
             addstr($time_row,0,$text);
@@ -160,10 +173,15 @@ for (;!$end_program;) {
         }
 
         if ($debug = $$a{'debug'}) {
-
             $text = sprintf("%-40s",$debug);
             # print "$row loop $loop_time us\n";
             addstr($debug_row,0,$text);
+            refresh();
+        }
+
+        if ((0)&&($max_udp = $$a{'max udp len'})) {
+            $text = sprintf("%7d bytes",$max_udp);
+            addstr($debug_row + 1,0,$text);
             refresh();
         }
     }
