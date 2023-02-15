@@ -5,9 +5,12 @@
 cmake_minimum_required(VERSION 3.13)
 
 project(rid_capture)
-set(VERSION 0.97)
+set(VERSION 0.98)
 
 #
+# Options.
+#
+
 # Use the bluez library.
 set(bluez_sniffer 1)
 # Or use an nRF sniffer.
@@ -22,9 +25,17 @@ set(fa_export 1)
 set(asterix 0)
 #
 set(verify 0)
-#
+# Basic text display.
 set(use_curses 0)
+# Basic web page.
+set(www_page 0)
+#
+# BT UUID 0x2bf0
+set(batt_volts 0)
+#
 
+#
+#
 #
 
 configure_file(rid_capture.h.in rid_capture.h)
@@ -32,10 +43,13 @@ configure_file(rid_capture.h.in rid_capture.h)
 set(CMAKE_C_FLAGS   "-Wall -Wno-parentheses -Wno-deprecated-declarations")
 set(CMAKE_CXX_FLAGS "-Wall -Wno-parentheses -Wno-deprecated-declarations")
 
-message(${CMAKE_SYSTEM_PROCESSOR})
+set(processor ${CMAKE_SYSTEM_PROCESSOR})
+message("'${processor}'")
 
-# if(${CMAKE_SYSTEM_PROCESSOR} STREQUAL armv71)
-if(0)
+# This doesn't work.
+# if("${processor}" STREQUAL "armv71")
+if(batt_volts)
+#  message("enabling fp16")  
   set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -mfp16-format=ieee")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfp16-format=ieee")
 endif()

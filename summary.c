@@ -15,10 +15,15 @@
  *
  */
 
+#pragma GCC diagnostic warning "-Wunused-variable"
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <stdint.h>
 #include <pwd.h>
+#include <time.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -28,6 +33,8 @@
 /*
  *
  */
+
+static const char   title[] = "RID Capture";
 
 extern uid_t        nobody;
 extern gid_t        nogroup;
@@ -97,6 +104,12 @@ void print_summary(char *dir,FILE *stderr2,struct UAV_RID *RID_data,int records)
         fprintf(log,"    \"CAA reg\"   : \"%s\",\n",a);
       }
 
+      a = RID_data[i].odid_data.SelfID.Desc;
+
+      if ((log)&&(a[0])) {
+        fprintf(log,"    \"self id\"   : \"%s\",\n",a);
+      }
+
       for (j = 0; j < ODID_BASIC_ID_MAX_MESSAGES; ++j) {
 
         a = RID_data[i].odid_data.BasicID[j].UASID;
@@ -150,3 +163,104 @@ void print_summary(char *dir,FILE *stderr2,struct UAV_RID *RID_data,int records)
  *
  */
 
+int www_export(char *dir,time_t secs,struct UAV_RID *RID_data) {
+
+  int         i, hsecs;
+  char        filename[128], *a, *b;
+  FILE       *page;
+  time_t      ts;
+  struct tm  *gmt, *acquired;
+  const char *header1[] = {"<html>\n",
+                           "<head>",
+                           "<meta http-equiv=\"Refresh\" content=\"5\"/>",
+                           "" },
+             *header2[] = {"<link rel=\"stylesheet\" type=\"text/css\" href=\"default.css\"/>",
+                           "</head>\n",
+                           "<body>",
+                           "<table border=\"0\" cellpadding=\"3\" style=\"margin-left: 10pt\">",
+                           "" },
+             *table1 =     "<tr align=\"center\"><td><b>Acquired</b></td>"
+                           "<td><b>Operator</b></td><td><b>UAV</b></td>"
+                           "<td><b>Latitude</b></td><td><b>Longitude</b></td>"
+                           "<td><b>Altitude</br>(m msl)</b></td></tr>",
+             *footer[]  = {"</table>",
+                           "</body>\n",
+                           "</html>",
+                           "" };
+
+  gmt = gmtime(&secs);
+
+  sprintf(filename,"%s/index.html",dir);
+  
+  if (page = fopen(filename,"w")) {
+
+    for (i = 0; (i < 16)&&(*header1[i]); ++i) {
+      fprintf(page,"%s\n",header1[i]);
+    }
+
+    fprintf(page,"<title>%s</title>\n",title);
+
+    for (i = 0; (i < 16)&&(*header2[i]); ++i) {
+      fprintf(page,"%s\n",header2[i]);
+    }
+
+    fprintf(page,"<tr align=\"center\"><td>%02d:%02d:%02d</td></tr>\n",
+            gmt->tm_hour,gmt->tm_min,gmt->tm_sec);
+
+    fprintf(page,"%s\n",table1);
+
+    for (i = 0; i < MAX_UAVS; ++i) {
+
+      if (RID_data[i].mac[0]) {
+
+        fputs("<tr align=\"center\">",page);
+
+        hsecs    = (int) RID_data[i].odid_data.Location.TimeStamp;
+        ts       = (RID_data[i].odid_data.System.Timestamp) ? (time_t) RID_data[i].odid_data.System.Timestamp:
+                                                              RID_data[i].last_rx;
+        acquired = gmtime(&ts);
+#if 0
+        if ((hsecs > -1)&&(hsecs < 3600)) {
+          fprintf(page,"<td>%02d:%02d</td>",hsecs / 60,hsecs % 60);
+        } else {
+          fputs("<td></td>",page);
+        }
+#endif
+#if 1
+        fprintf(page,"<td>%02d:%02d:%02d</td>",
+                acquired->tm_hour,acquired->tm_min,acquired->tm_sec);
+#endif
+        a = RID_data[i].odid_data.OperatorID.OperatorId;
+        b = RID_data[i].basic_caa_reg.UASID;
+        fprintf(page,"<td>%s</td>",(*a) ? a: ((*b) ? b: "-"));
+
+        a = RID_data[i].basic_serial.UASID;
+        b = RID_data[i].odid_data.BasicID[0].UASID;
+        fprintf(page,"<td>%s</td>",(*a) ? a: ((*b) ? b: "-"));
+
+        fprintf(page,"<td>%.6f</td>",RID_data[i].odid_data.Location.Latitude);
+        fprintf(page,"<td>%.6f</td>",RID_data[i].odid_data.Location.Longitude);
+        fprintf(page,"<td>%d</td>",(int) RID_data[i].odid_data.Location.AltitudeGeo);
+
+        fputs("</tr>\n",page);
+      }
+    }
+
+    for (i = 0; (i < 16)&&(*footer[i]); ++i) {
+      fprintf(page,"%s\n",footer[i]);
+    }
+
+    fprintf(page,"\n<!-- Build date: %s -->\n",__DATE__);
+
+    fclose(page);
+
+    chmod(filename,file_mode);
+    chown(filename,nobody,nogroup);
+  }
+  
+  return 0;
+}
+
+/*
+ *
+ */

@@ -68,13 +68,13 @@
 #define NRF_BUFFER_SIZE  128
 
 unsigned char             key[MAX_KEY_LEN + 2], iv[MAX_KEY_LEN + 2];
-uid_t                     nobody  = 0;
-gid_t                     nogroup = 0;
+uid_t                     nobody  = 1000;
+gid_t                     nogroup = 1000;
 const mode_t              file_mode = 0666, dir_mode = 0777;
 
 static int                enable_display = 0, enable_udp = 0, json_socket = -1,
                           max_udp_length = 0;
-static char              *log_dir = NULL;
+static char              *log_dir = NULL, *www_dir = NULL;
 static double             setup_ms = 0.0, loop_us = 0.0;
 static unsigned int       port = 32001;
 static volatile int       end_program  = 0;
@@ -86,6 +86,7 @@ static const char         default_key[]     = "0123456789abcdef",
                           device_pi[]       = "wlan1",
                           device_i686[]     = "wlp5s0b1",
                           default_log_dir[] = "/tmp/rid_capture",
+                          default_www_dir[] = "www",
                           dummy[]           = "";
 const char                pass_s[] = "Pass", fail_s[] = "Fail"; 
 static volatile uint32_t  rx_packets = 0, odid_packets = 0;
@@ -165,6 +166,7 @@ int main(int argc,char *argv[]) {
   bluez_name = (char *) device_bluez;
   nrf_name   = (char *) device_nrf;
   log_dir    = (char *) default_log_dir;
+  www_dir    = (char *) default_www_dir;
 
   uname(&sys_uname);
   
@@ -297,7 +299,13 @@ int main(int argc,char *argv[]) {
   mkdir(log_dir,dir_mode);
   chmod(log_dir,dir_mode);
   chown(log_dir,nobody,nogroup);
-  
+
+#if WWW_PAGE
+  mkdir(www_dir,dir_mode);
+  chmod(www_dir,dir_mode);
+  chown(www_dir,nobody,nogroup);
+#endif
+
 #if DEBUG_FILE
   sprintf(text,"%s/%s",log_dir,debug_filename);
   debug_file = fopen(text,"w");
@@ -477,7 +485,7 @@ int main(int argc,char *argv[]) {
 #endif
 
     // The nRF sniffer can put out a lot of data hence the separate process.
-    // nrf_pipe is supposed to be non-blocking, but isn't...
+
 #if NRF_SNIFFER
     if (nrf_child > 0) {
       for (nrf_reads = 0, nrf_bytes = 0; (nrf_reads < 4)&&(!end_program);) {
@@ -550,6 +558,9 @@ int main(int argc,char *argv[]) {
         break;
 
       case 2:
+#if WWW_PAGE
+        www_export(www_dir,secs,RID_data);
+#endif
         break;
 
       default:
@@ -1016,10 +1027,13 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi,const char *note
 
     memcpy(&RID_data[RID_index].odid_data.System,&UAS_data.System,sizeof(ODID_System_data));
 
-    display_timestamp(RID_index + 1,(time_t) UAS_data.System.Timestamp);
+    display_timestamp(RID_index + 1,(time_t) UAS_data.System.Timestamp + ID_OD_AUTH_DATUM);
   }
 
   if (UAS_data.SelfIDValid) {
+
+    sprintf(json,", \"self id\" : \"%s\"",UAS_data.SelfID.Desc);
+    write_json(json);
 
     memcpy(&RID_data[RID_index].odid_data.SelfID,&UAS_data.SelfID,sizeof(ODID_SelfID_data));
   }
@@ -1034,7 +1048,7 @@ void parse_odid(u_char *mac,u_char *payload,int length,int rssi,const char *note
                ((unsigned long int) UAS_data.Auth[page].Timestamp) + ID_OD_AUTH_DATUM);
         write_json(json);
 
-        display_timestamp(RID_index + 1,(time_t) UAS_data.Auth[page].Timestamp);
+        display_timestamp(RID_index + 1,(time_t) UAS_data.Auth[page].Timestamp + ID_OD_AUTH_DATUM);
       }
 
       sprintf(json,", \"auth page %d\" : { \"text\" : \"%s\"",page,

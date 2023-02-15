@@ -147,8 +147,11 @@ void display_uav_loc(int row,double latitude,double longitude,int altitude,int h
     mvaddstr(row,LONG_COL,text);
     sprintf(text,"%5d ",altitude);
     mvaddstr(row,ALT_COL,text);
-    sprintf(text,"%02d:%02d ",hsecs / 60,hsecs % 60);
-    mvaddstr(row,TS_L_COL,text);
+
+    if (hsecs < 3600) {
+      sprintf(text,"%02d:%02d ",hsecs / 60,hsecs % 60);
+      mvaddstr(row,TS_L_COL,text);
+    }
 
     refresh();
   }
@@ -169,8 +172,7 @@ void display_timestamp(int row,time_t secs) {
   char       text[32];
   struct tm *timestamp;
 
-  secs      += ID_OD_AUTH_DATUM;
-  timestamp  = gmtime(&secs);
+  timestamp = gmtime(&secs);
  
   if (window) {
 

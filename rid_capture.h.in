@@ -15,7 +15,7 @@
 
 #define VERSION        "${VERSION}"
 
-/* BLE, choose one. */
+/* Bluetooth LE */
 #define BLUEZ_SNIFFER  ${bluez_sniffer} /* Linux standard Bluetooth stack. */
 #define NRF_SNIFFER    ${nrf_sniffer} /* nRF52840 dongle running nRF's sniffer program. */
 
@@ -30,9 +30,13 @@
 #define ASTERIX        ${asterix} /* Eurocontrol ASTERIX cat. 129 format. */
 #define VERIFY         ${verify} /* For investigating auth messages.     */
 #define USE_CURSES     ${use_curses} /* For testing, displays should use the UDP output. */
+#define WWW_PAGE       ${www_page}
+
+/* Experimental */
+#define BATT_VOLTS     ${batt_volts}
+
 
 #define MAX_UAVS      20
-
 #define ID_OD_AUTH_DATUM  1546300800LU
 
 struct UAV_RID {u_char            mac[6], counter[16];
@@ -84,6 +88,7 @@ void  asterix_end(void);
 
 /* summary.c */
 void  print_summary(char *,FILE *,struct UAV_RID *,int);
+int   www_export(char *,time_t,struct UAV_RID *);
 
 void  calc_m_per_deg(double,double *,double *);
 

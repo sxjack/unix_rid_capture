@@ -459,7 +459,7 @@ int decode_sniffer_packet(uint8_t *message,int msg_len) {
   int                   odid_len = 0, rssi = 0;
   float                 voltage = 0.0;
   uint8_t              *odid_data = NULL;
-#if 0 && __arm__
+#if BATT_VOLTS && __arm__
   union {_Float16 f16;
          uint16_t u16;} batt_volts;
 #endif
@@ -542,7 +542,7 @@ int decode_sniffer_packet(uint8_t *message,int msg_len) {
                 break;
 
               case 0x2bf0:
-#if 0 && __arm__
+#if BATT_VOLTS && __arm__
                 batt_volts.u16 = adv_data[j + 6] | (adv_data[j + 7] << 8);
                 voltage        = (float) batt_volts.f16;
 #endif

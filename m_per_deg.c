@@ -28,7 +28,7 @@ int main(int argc,char *argv[]) {
   printf("lat. %5.1f, %6d m/deg. lat., %6d m/deg. long.\r\n",
          lat,(int) m_deg_lat,(int) m_deg_long);
 
-	// Example 10.b
+  // Example 10.b
   calc_m_per_deg(lat = 42.0,&m_deg_lat,&m_deg_long);
   printf("lat. %5.1f, %6d m/deg. lat., %6d m/deg. long.\r\n",
          lat,(int) m_deg_lat,(int) m_deg_long);

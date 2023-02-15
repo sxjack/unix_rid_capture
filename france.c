@@ -5,7 +5,7 @@
  *
  * This file contains the code to parse a French ID.
  *
- * Copyright (c) 2022 Steve Jack
+ * Copyright (c) 2022-2023 Steve Jack
  *
  * MIT licence
  *
@@ -81,7 +81,6 @@ void parse_id_france(uint8_t *mac,uint8_t *payload,struct UAV_RID *RID_data) {
     case  1:
 
       if (v[0] != 1) {
-
         ;
       }
 
@@ -89,21 +88,20 @@ void parse_id_france(uint8_t *mac,uint8_t *payload,struct UAV_RID *RID_data) {
 
     case  2:
 
-      for (i = 0; (i < (l - 6))&&(i < (ID_SIZE - 1)); ++i) {
-
-        operator[i] = (char) v[i + 6];
+      for (i = 0; (i < l)&&(i < (ID_SIZE - 1)); ++i) {
+        operator[i] = (char) v[i];
       }
 
       operator[i] = 0;
 
       sprintf(text,", \"operator\" : \"%s\"",operator);
       write_json(text);
+      display_identifier(RID_index + 1,operator);
       break;
 
     case  3:
 
       for (i = 0; (i < l)&&(i < (ID_SIZE - 1)); ++i) {
-
         serial[i] = (char) v[i];
       }
 
@@ -116,7 +114,6 @@ void parse_id_france(uint8_t *mac,uint8_t *payload,struct UAV_RID *RID_data) {
     case  4:
 
       for (i = 0; i < 4; ++i) {
-
         uav_lat.u32 <<= 8;
         uav_lat.u32  |= v[i];
       }
@@ -126,7 +123,6 @@ void parse_id_france(uint8_t *mac,uint8_t *payload,struct UAV_RID *RID_data) {
     case  5:
 
       for (i = 0; i < 4; ++i) {
-
         uav_long.u32 <<= 8;
         uav_long.u32  |= v[i];
       }
@@ -146,7 +142,6 @@ void parse_id_france(uint8_t *mac,uint8_t *payload,struct UAV_RID *RID_data) {
     case  8:
 
       for (i = 0; i < 4; ++i) {
-
         base_lat.u32 <<= 8;
         base_lat.u32  |= v[i];
       }
@@ -156,7 +151,6 @@ void parse_id_france(uint8_t *mac,uint8_t *payload,struct UAV_RID *RID_data) {
     case  9:
 
       for (i = 0; i < 4; ++i) {
-
         base_long.u32 <<= 8;
         base_long.u32  |= v[i];
       }
@@ -203,11 +197,16 @@ void parse_id_france(uint8_t *mac,uint8_t *payload,struct UAV_RID *RID_data) {
   sprintf(text,", \"unix time\" : %lu",secs);
   write_json(text);
 
+  display_uav_loc(RID_index + 1,latitude,longitude,altitude_msl,3600);
+  display_timestamp(RID_index + 1,secs);
+  display_note(RID_index + 1,"pcap French");
+
   write_json(" }\n");
 
   /* */
 
   strcpy(RID_data[RID_index].odid_data.BasicID[0].UASID,serial);
+  strcpy(RID_data[RID_index].basic_serial.UASID,serial);
   strcpy(RID_data[RID_index].odid_data.OperatorID.OperatorId,operator);
 
   RID_data[RID_index].odid_data.BasicID[0].IDType         = ODID_IDTYPE_SERIAL_NUMBER;
@@ -215,6 +214,7 @@ void parse_id_france(uint8_t *mac,uint8_t *payload,struct UAV_RID *RID_data) {
   RID_data[RID_index].odid_data.Location.Latitude         = latitude;
   RID_data[RID_index].odid_data.Location.Longitude        = longitude;
   RID_data[RID_index].odid_data.Location.AltitudeGeo      = altitude_msl;
+  RID_data[RID_index].odid_data.Location.TimeStamp        = 3600;
 
   RID_data[RID_index].odid_data.System.Timestamp          = (uint32_t) (secs - ID_OD_AUTH_DATUM);
   RID_data[RID_index].odid_data.System.OperatorLatitude   = latitude;
