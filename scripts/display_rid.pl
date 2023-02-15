@@ -144,17 +144,16 @@ for (;!$end_program;) {
                 if ($hsecs) {
                     $m = int($hsecs / 60);
                     $s = int($hsecs % 60);
-                } else {
-                    $m = 0;
-                    $s = 0;
                 }
 
                 $text = sprintf("%-12.6f %-12.6f %4d   %3d   ",
                                 $latitude,$longitude,$alt_msl,$heading);
                 # print "$text\n";
                 addstr($row,$loc_col,$text);
-                $text = sprintf("%02d:%02d ",$m,$s);
-                addstr($row,$ts_col,$text);
+                if ($hsecs) {
+                    $text = sprintf("%02d:%02d ",$m,$s);
+                    addstr($row,$ts_col,$text);
+                }
                 refresh();
             }
 
