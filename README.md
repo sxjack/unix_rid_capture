@@ -13,7 +13,7 @@ The output is in json format. Perl scripts are provided for converting the json 
 
 Tested using an rtl8812au based WiFi dongle, an nRF52840 dongle and a Raspberry Pi 3B.
 
-Probably won't receiver BT5 advertising.
+Probably won't receive Bluetooth 5 advertising without external hardware.
 
 If anybody runs this in the vicinity of an "Arrêté du 27 décembre 2019" French ID, I would appreciate the debug.txt.
 
