@@ -20,7 +20,7 @@ set(enable_pcap 1)
 # Handle French beacon IDs.
 set(id_france 1)
 # Create a FlightAware aircraft.json output file. 
-set(fa_export 1)
+set(fa_export 3)
 #
 set(asterix 0)
 #

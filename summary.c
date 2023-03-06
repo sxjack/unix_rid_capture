@@ -78,7 +78,7 @@ void print_summary(char *dir,FILE *stderr2,struct UAV_RID *RID_data,int records)
 
       if (log) {
         fprintf(log,"%s  \"uav%d\" : {\n    \"mac\"       : \"%s\",\n",
-                (i)? "\n  },\n": "",i,mac);
+                (i) ? ",\n": "",i,mac);
       }
 
       a = RID_data[i].odid_data.OperatorID.OperatorId;
@@ -134,6 +134,7 @@ void print_summary(char *dir,FILE *stderr2,struct UAV_RID *RID_data,int records)
                 RID_data[i].min_long,RID_data[i].max_long,m_ns);
         fprintf(log,"    \"altitude\"  : { \"min\" :%7.1f,      \"max\" :%7.1f }\n",
                 RID_data[i].min_alt,RID_data[i].max_alt);
+        fprintf(log,"  }");
       }
 
       if (stderr2) {
@@ -150,7 +151,7 @@ void print_summary(char *dir,FILE *stderr2,struct UAV_RID *RID_data,int records)
   }
 
   if (log) {
-    fputs("  }\n}\n",log);
+    fputs("\n}\n",log);
     fclose(log);
   }
 
@@ -172,7 +173,7 @@ int www_export(char *dir,time_t secs,struct UAV_RID *RID_data) {
   struct tm  *gmt, *acquired;
   const char *header1[] = {"<html>\n",
                            "<head>",
-                           "<meta http-equiv=\"Refresh\" content=\"5\"/>",
+                           "<meta http-equiv=\"Refresh\" content=\"1\"/>",
                            "" },
              *header2[] = {"<link rel=\"stylesheet\" type=\"text/css\" href=\"default.css\"/>",
                            "</head>\n",

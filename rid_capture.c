@@ -104,6 +104,15 @@ static const char         device_nrf[] = "/dev/ttyACM0";
 #if NRF_SNIFFER
 static int                nrf_pipe = -1;
 #endif
+#if FA_EXPORT
+static time_t             last_fa_export = 0;
+#endif
+#if ASTERIX
+static time_t             last_asterix = 0;
+#endif
+#if WWW_PAGE
+static time_t             last_www_page = 0;
+#endif
 
 #if ENABLE_PCAP
 void list_devices(char *);
@@ -120,14 +129,13 @@ static void signal_handler(int);
 
 int main(int argc,char *argv[]) {
 
-  int                 i, j, set_monitor = 1, man_dev = 0, key_len, iv_len, status,
-                      export_index = 0;
+  int                 i, j, set_monitor = 1, man_dev = 0, key_len, iv_len, status;
   char               *arg, *wifi_name, *nrf_name, *bluez_name, *udp_server,
                       text[128];
   uint32_t            packets_1s, last_odid_packets = 0;
   u_char              message[16];
   uid_t               uid;
-  time_t              secs, last_debug = 0, last_export = 0, last_summary = 0;
+  time_t              secs, last_debug = 0, last_diag = 0, last_summary = 0;
   struct timespec     start, setup_done, loop_entry, last_loop;
 #if ENABLE_PCAP
   char                errbuf[PCAP_ERRBUF_SIZE];
@@ -309,6 +317,7 @@ int main(int argc,char *argv[]) {
 #if DEBUG_FILE
   sprintf(text,"%s/%s",log_dir,debug_filename);
   debug_file = fopen(text,"w");
+  chmod(text,file_mode);
 #endif
 
   if (enable_udp) {
@@ -431,8 +440,17 @@ int main(int argc,char *argv[]) {
 
   time(&secs);
 
-  last_summary =
-  last_debug   = secs;
+  last_summary   =
+  last_debug     = secs;
+#if FA_EXPORT
+  last_fa_export = secs + 2 + FA_EXPORT;
+#endif
+#if ASTERIX
+  last_asterix   = secs + 3 + ASTERIX;
+#endif
+#if WWW_PAGE
+  last_www_page  = secs + 4 + WWW_PAGE;
+#endif
 
   clock_gettime(CLOCK_REALTIME,&setup_done);
 
@@ -527,50 +545,42 @@ int main(int argc,char *argv[]) {
     }
 #endif
 
-    if ((secs - last_summary) > 900) {
+    if ((secs - last_summary) > 899) {
 
       print_summary(log_dir,NULL,RID_data,MAX_UAVS);
       last_summary = secs;
     }
 
-    if ((secs - last_export) > 1) {
+    if (secs != last_diag) {
 
       packets_1s        = odid_packets - last_odid_packets;
       last_odid_packets = odid_packets;
 
       display_loop_diag(loop_us,packets_1s);
 
-      last_export = secs;
-
-      switch (export_index) {
-
-      case 0:
-#if ASTERIX
-        asterix_transmit(RID_data);
-#endif
-        break;
-
-      case 1:
-      case 3:
-#if FA_EXPORT
-        fa_export(secs,RID_data);
-#endif
-        break;
-
-      case 2:
-#if WWW_PAGE
-        www_export(www_dir,secs,RID_data);
-#endif
-        break;
-
-      default:
-        break;
-      }
-
-      if (++export_index > 3) {
-        export_index = 0;
-      }
+      last_diag = secs;
     }
+
+#if ASTERIX > 0
+    if ((secs - last_asterix) >= ASTERIX) {
+      asterix_transmit(RID_data);
+      last_asterix = secs;
+    }
+#endif
+
+#if FA_EXPORT > 0
+    if ((secs - last_fa_export) >= FA_EXPORT) {
+      fa_export(secs,RID_data);
+      last_fa_export = secs;
+    }
+#endif
+
+#if WWW_PAGE > 0
+    if ((secs - last_www_page) >= WWW_PAGE) {
+      www_export(www_dir,secs,RID_data);
+      last_www_page = secs;
+    }
+#endif
   }
 
   /* 

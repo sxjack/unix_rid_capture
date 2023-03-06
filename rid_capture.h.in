@@ -25,12 +25,19 @@
 /* Protocols */
 #define ID_FRANCE      ${id_france}
 
-/* Outputs and analysis */
+/* Outputs.
+ * Positive number turns an output on.
+ * The number is seconds between updates.
+ */
 #define FA_EXPORT      ${fa_export} /* FlightAware format.                  */
 #define ASTERIX        ${asterix} /* Eurocontrol ASTERIX cat. 129 format. */
-#define VERIFY         ${verify} /* For investigating auth messages.     */
-#define USE_CURSES     ${use_curses} /* For testing, displays should use the UDP output. */
 #define WWW_PAGE       ${www_page}
+
+/* Display */
+#define USE_CURSES     ${use_curses} /* For testing, displays should use the UDP output. */
+
+/* Analysis */
+#define VERIFY         ${verify} /* For investigating auth messages.     */
 
 /* Experimental */
 #define BATT_VOLTS     ${batt_volts}
